@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>喝水紀錄儀表板</title>
+  <style>
+    :root {
+      --bg: #06131f;
+      --card: rgba(9, 28, 43, 0.72);
+      --card-2: rgba(10, 37, 56, 0.88);
+      --line: rgba(160, 220, 255, 0.14);
+      --ink: #ecfaff;
+      --muted: #94b7c8;
+      --accent: #44d2ff;
+      --accent-2: #7affc7;
+      --accent-3: #ffd166;
+      --ok: #7affc7;
+      --danger: #ff8f8f;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "SF Pro Display", "Noto Sans TC", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 15% 20%, rgba(68, 210, 255, 0.26), transparent 22%),
+        radial-gradient(circle at 85% 15%, rgba(122, 255, 199, 0.18), transparent 18%),
+        radial-gradient(circle at 50% 100%, rgba(255, 209, 102, 0.12), transparent 26%),
+        linear-gradient(180deg, #081522, #07111b 45%, #091827);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    .wrap {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 20px 72px;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      gap: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-mark {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      background:
+        linear-gradient(160deg, rgba(68, 210, 255, 0.95), rgba(122, 255, 199, 0.65)),
+        rgba(255,255,255,0.1);
+      box-shadow: 0 14px 30px rgba(68, 210, 255, 0.22);
+      position: relative;
+      overflow: hidden;
+    }
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      inset: 8px 16px 8px 16px;
+      border-radius: 18px 18px 60% 60%;
+      background: rgba(7, 17, 27, 0.65);
+    }
+    .brand-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .brand-sub {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .quick-link {
+      color: var(--ink);
+      text-decoration: none;
+      padding: 12px 16px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--line);
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: var(--card);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+    .hero-card {
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at top right, rgba(68, 210, 255, 0.18), transparent 24%),
+        linear-gradient(180deg, rgba(9, 28, 43, 0.8), rgba(7, 17, 27, 0.92));
+    }
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      right: -40px;
+      top: -40px;
+      width: 180px;
+      height: 180px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(68, 210, 255, 0.24), transparent 60%);
+      filter: blur(6px);
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2.4rem, 6vw, 4.4rem);
+      line-height: 0.9;
+      letter-spacing: -0.04em;
+    }
+    h2 { margin: 0 0 8px; font-size: 1.1rem; }
+    .sub { color: var(--muted); margin: 0; }
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+    .ghost-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-radius: 999px;
+      color: var(--ink);
+      text-decoration: none;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--line);
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .metric {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+    }
+    .metric strong {
+      display: block;
+      font-size: 2rem;
+      margin-bottom: 4px;
+    }
+    .ring {
+      width: 210px;
+      height: 210px;
+      margin: 0 auto;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: conic-gradient(var(--accent) 0deg, var(--accent-2) 0deg, rgba(255,255,255,0.08) 0deg);
+      box-shadow: inset 0 0 40px rgba(255,255,255,0.04), 0 20px 60px rgba(0,0,0,0.28);
+    }
+    .ring-inner {
+      width: 154px;
+      height: 154px;
+      border-radius: 50%;
+      background: radial-gradient(circle at top, rgba(17, 50, 77, 0.86), rgba(7, 17, 27, 0.96));
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 12px;
+      border: 1px solid var(--line);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .stack {
+      display: grid;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .bars {
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      height: 220px;
+      margin-top: 16px;
+    }
+    .bar-col {
+      flex: 1;
+      text-align: center;
+      min-width: 0;
+    }
+    .bar {
+      height: 180px;
+      display: flex;
+      align-items: end;
+      justify-content: center;
+    }
+    .bar-fill {
+      width: 100%;
+      max-width: 44px;
+      border-radius: 16px 16px 8px 8px;
+      background: linear-gradient(180deg, var(--accent-2), var(--accent));
+      transition: height 0.3s ease;
+      box-shadow: 0 12px 24px rgba(68, 210, 255, 0.22);
+    }
+    .bar-label {
+      margin-top: 8px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .log-list {
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 10px;
+    }
+    .log-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+    }
+    form {
+      display: grid;
+      grid-template-columns: 2fr 1fr auto;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .settings-form {
+      grid-template-columns: repeat(4, 1fr) auto;
+    }
+    select {
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 16px;
+      font: inherit;
+      background: rgba(255,255,255,0.95);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(17, 50, 77, 0.08);
+      color: var(--ink);
+      font-size: 0.9rem;
+      margin-top: 14px;
+    }
+    input, button {
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 16px;
+      font: inherit;
+    }
+    input { background: rgba(255,255,255,0.96); }
+    button {
+      background: linear-gradient(135deg, var(--accent), #1da7ff);
+      color: #04111d;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 14px 28px rgba(68, 210, 255, 0.22);
+    }
+    .hint { color: var(--muted); font-size: 0.9rem; }
+    .status-ok { color: var(--ok); }
+    .status-bad { color: var(--danger); }
+    .summary-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .summary-chip {
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--line);
+    }
+    .summary-chip b {
+      display: block;
+      font-size: 1.15rem;
+      margin-bottom: 4px;
+    }
+    @media (max-width: 800px) {
+      .topbar, .hero-actions { flex-direction: column; align-items: flex-start; }
+      .hero, .grid, .metrics, form, .summary-strip { grid-template-columns: 1fr; }
+      .ring { width: 170px; height: 170px; }
+      .ring-inner { width: 126px; height: 126px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="topbar">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <div>
+          <div class="brand-title">Hydra Water Board</div>
+          <div class="brand-sub">Telegram bot + visual dashboard</div>
+        </div>
+      </div>
+      <a class="quick-link" id="top-dashboard-link" href="/" target="_blank" rel="noreferrer">開啟儀表板</a>
+    </section>
+    <section class="hero">
+      <div class="card hero-card">
+        <p class="sub">Telegram 喝水提醒 + 網頁視覺化</p>
+        <h1>喝水紀錄</h1>
+        <p class="sub">一個給群組使用的補水面板。提醒、回報、統計和設定都集中在同一個地方，從 Telegram 點一下就能直接跳回來看。</p>
+        <div class="hero-actions">
+          <a class="ghost-link" id="hero-dashboard-link" href="/" target="_blank" rel="noreferrer">從 Telegram 快捷開啟頁面</a>
+          <span class="pill">目前群組：<strong id="active-chat-id">尚未載入</strong></span>
+        </div>
+        <form id="query-form">
+          <input id="chat-id" placeholder="Telegram chat id" />
+          <input id="cups" type="number" min="1" max="20" value="1" />
+          <button type="submit">記錄喝水</button>
+        </form>
+        <p class="hint">先到 Telegram 對 bot 傳送 <code>/start</code>。如果有設定預設群組，頁面會自動載入。</p>
+        <div class="summary-strip">
+          <div class="summary-chip">
+            <b>群組同步</b>
+            <span class="hint">按 Telegram 按鈕後，這裡會即時更新。</span>
+          </div>
+          <div class="summary-chip">
+            <b>提醒可視化</b>
+            <span class="hint">不只記錄杯數，也看得到 7 天節奏。</span>
+          </div>
+          <div class="summary-chip">
+            <b>快捷入口</b>
+            <span class="hint">訊息裡可直接點回儀表板頁面。</span>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="background: linear-gradient(180deg, rgba(10,37,56,0.92), rgba(7,17,27,0.95));">
+        <div class="ring" id="ring">
+          <div class="ring-inner">
+            <div>
+              <div id="today-progress" style="font-size:1.8rem;font-weight:700;">0 / 16</div>
+              <div class="hint">今日進度</div>
+            </div>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="metric">
+            <strong id="debt">0</strong>
+            <span class="hint">補杯數</span>
+          </div>
+          <div class="metric">
+            <strong id="week-ok">0</strong>
+            <span class="hint">本週達標</span>
+          </div>
+          <div class="metric">
+            <strong id="status-text" class="status-bad">待補水</strong>
+            <span class="hint">今日狀態</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>近 7 天趨勢</h2>
+        <div class="bars" id="bars"></div>
+      </div>
+      <div class="card">
+        <h2>最近紀錄</h2>
+        <ul class="log-list" id="log-list"></ul>
+      </div>
+    </section>
+
+    <section class="stack">
+      <div class="card">
+        <h2>提醒設定</h2>
+        <form id="settings-form" class="settings-form">
+          <input id="daily-target" type="number" min="1" max="40" value="16" placeholder="每日目標" />
+          <input id="start-hour" type="number" min="0" max="23" value="6" placeholder="開始小時" />
+          <input id="end-hour" type="number" min="0" max="23" value="22" placeholder="結束小時" />
+          <select id="timezone">
+            <option value="Asia/Taipei">Asia/Taipei</option>
+            <option value="Asia/Tokyo">Asia/Tokyo</option>
+            <option value="UTC">UTC</option>
+          </select>
+          <button type="submit">儲存設定</button>
+        </form>
+        <p class="hint" id="settings-status">尚未讀取設定</p>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const form = document.getElementById('query-form');
+    const settingsForm = document.getElementById('settings-form');
+    const chatIdInput = document.getElementById('chat-id');
+    const activeChatId = document.getElementById('active-chat-id');
+    const cupsInput = document.getElementById('cups');
+    const dailyTargetInput = document.getElementById('daily-target');
+    const startHourInput = document.getElementById('start-hour');
+    const endHourInput = document.getElementById('end-hour');
+    const timezoneInput = document.getElementById('timezone');
+    const settingsStatus = document.getElementById('settings-status');
+    const topDashboardLink = document.getElementById('top-dashboard-link');
+    const heroDashboardLink = document.getElementById('hero-dashboard-link');
+    const ring = document.getElementById('ring');
+    const todayProgress = document.getElementById('today-progress');
+    const debt = document.getElementById('debt');
+    const weekOk = document.getElementById('week-ok');
+    const statusText = document.getElementById('status-text');
+    const bars = document.getElementById('bars');
+    const logList = document.getElementById('log-list');
+
+    async function loadSummary(chatId) {
+      if (!chatId) return;
+      const res = await fetch(`/api/users/${encodeURIComponent(chatId)}/summary`);
+      if (!res.ok) {
+        alert('找不到這個 chat id，請先到 Telegram 對 bot 傳送 /start');
+        return;
+      }
+      const data = await res.json();
+      activeChatId.textContent = chatId;
+      renderSummary(data);
+    }
+
+    async function loadSettings(chatId) {
+      if (!chatId) return;
+      const res = await fetch(`/api/users/${encodeURIComponent(chatId)}/settings`);
+      if (!res.ok) return;
+      const data = await res.json();
+      dailyTargetInput.value = data.daily_target;
+      startHourInput.value = data.reminder_start_hour;
+      endHourInput.value = data.reminder_end_hour;
+      timezoneInput.value = data.timezone;
+      settingsStatus.textContent = '設定已載入';
+    }
+
+    async function loadDefaultConfig() {
+      const res = await fetch('/api/config');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.default_chat_id) {
+        chatIdInput.value = data.default_chat_id;
+        await loadSummary(data.default_chat_id);
+        await loadSettings(data.default_chat_id);
+      }
+      if (data.dashboard_url) {
+        topDashboardLink.href = data.dashboard_url;
+        heroDashboardLink.href = data.dashboard_url;
+      }
+    }
+
+    function renderSummary(data) {
+      const ratio = Math.min(1, data.target ? data.daily_total / data.target : 0);
+      const degrees = Math.round(ratio * 360);
+      ring.style.background = `conic-gradient(var(--accent) ${degrees}deg, var(--accent-2) ${degrees}deg, #dce8ef 0deg)`;
+      todayProgress.textContent = `${data.daily_total} / ${data.target}`;
+      debt.textContent = data.debt_cups;
+      weekOk.textContent = `${data.week_ok_days}/7`;
+      const achieved = data.daily_total >= data.target;
+      statusText.textContent = achieved ? '已達標' : '待補水';
+      statusText.className = achieved ? 'status-ok' : 'status-bad';
+
+      bars.innerHTML = data.recent_7_days.map(item => {
+        const h = Math.max(8, Math.round((item.cups / Math.max(item.target, 1)) * 180));
+        const label = item.date.slice(5);
+        return `
+          <div class="bar-col">
+            <div class="bar">
+              <div class="bar-fill" style="height:${Math.min(h,180)}px;opacity:${item.achieved ? 1 : 0.6}"></div>
+            </div>
+            <div>${item.cups}/${item.target}</div>
+            <div class="bar-label">${label}</div>
+          </div>
+        `;
+      }).join('');
+
+      logList.innerHTML = data.recent_logs.length ? data.recent_logs.map(item => `
+        <li class="log-item">
+          <span>${new Date(item.logged_at).toLocaleString()}</span>
+          <strong>+${item.cups} 杯</strong>
+        </li>
+      `).join('') : '<li class="log-item"><span>還沒有紀錄</span><strong>0 杯</strong></li>';
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const chatId = chatIdInput.value.trim();
+      const cups = Number(cupsInput.value);
+      if (!chatId) {
+        alert('請先輸入 Telegram chat id');
+        return;
+      }
+      const res = await fetch('/api/drink', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, cups })
+      });
+      if (!res.ok) {
+        alert('記錄失敗，請確認 chat id 是否已啟用');
+        return;
+      }
+      await loadSummary(chatId);
+      await loadSettings(chatId);
+    });
+
+    settingsForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const chatId = chatIdInput.value.trim();
+      if (!chatId) {
+        alert('請先輸入或載入 chat id');
+        return;
+      }
+      const res = await fetch(`/api/users/${encodeURIComponent(chatId)}/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          daily_target: Number(dailyTargetInput.value),
+          reminder_start_hour: Number(startHourInput.value),
+          reminder_end_hour: Number(endHourInput.value),
+          timezone: timezoneInput.value
+        })
+      });
+      settingsStatus.textContent = res.ok ? '設定已儲存' : '設定儲存失敗';
+      if (res.ok) {
+        await loadSummary(chatId);
+        await loadSettings(chatId);
+      }
+    });
+
+    chatIdInput.addEventListener('change', async () => {
+      const chatId = chatIdInput.value.trim();
+      await loadSummary(chatId);
+      await loadSettings(chatId);
+    });
+
+    loadDefaultConfig();
+  </script>
+</body>
+</html>

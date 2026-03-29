@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  water:
+    build: .
+    container_name: water-reminder
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/water.db
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      SCHEDULER_TIMEZONE: Asia/Taipei
+      TELEGRAM_USE_POLLING: ${TELEGRAM_USE_POLLING:-true}
+    volumes:
+      - ./data:/data
