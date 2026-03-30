@@ -15,7 +15,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     chat_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Taipei")
-    daily_target: Mapped[int] = mapped_column(Integer, default=16)
+    daily_target: Mapped[int] = mapped_column(Integer, default=3000)
     reminder_start: Mapped[time] = mapped_column(Time, default=time(6, 0))
     reminder_end: Mapped[time] = mapped_column(Time, default=time(22, 0))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -33,7 +33,7 @@ class WaterState(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
     date_key: Mapped[date] = mapped_column(Date, index=True)
-    debt_cups: Mapped[int] = mapped_column(Integer, default=0)
+    debt_ml: Mapped[int] = mapped_column("debt_cups", Integer, default=0)
     daily_total: Mapped[int] = mapped_column(Integer, default=0)
     last_drink_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
@@ -50,8 +50,8 @@ class WaterDaily(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     date_key: Mapped[date] = mapped_column(Date, index=True)
-    cups: Mapped[int] = mapped_column(Integer, default=0)
-    target: Mapped[int] = mapped_column(Integer, default=16)
+    total_ml: Mapped[int] = mapped_column("cups", Integer, default=0)
+    target_ml: Mapped[int] = mapped_column("target", Integer, default=3000)
     achieved: Mapped[bool] = mapped_column(Boolean, default=False)
 
     user: Mapped[User] = relationship(back_populates="daily_records")
@@ -62,7 +62,7 @@ class WaterLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    cups: Mapped[int] = mapped_column(Integer)
+    amount_ml: Mapped[int] = mapped_column("cups", Integer)
     source: Mapped[str] = mapped_column(String(32), default="telegram")
     logged_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 

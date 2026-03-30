@@ -7,11 +7,11 @@ from pydantic import BaseModel, Field
 
 class ManualDrinkIn(BaseModel):
     chat_id: str = Field(..., description="Telegram chat id")
-    cups: int = Field(..., ge=1, le=20)
+    amount_ml: int = Field(..., ge=1, le=5000)
 
 
 class UserSettingsIn(BaseModel):
-    daily_target: int = Field(..., ge=1, le=40)
+    daily_target: int = Field(..., ge=250, le=10000)
     reminder_start_hour: int = Field(..., ge=0, le=23)
     reminder_end_hour: int = Field(..., ge=0, le=23)
     timezone: str = Field(default="Asia/Taipei")
@@ -30,7 +30,9 @@ class SummaryOut(BaseModel):
     today: str
     daily_total: int
     target: int
-    debt_cups: int
+    debt_ml: int
     week_ok_days: int
+    status_message: str
+    time_blocks: list[dict]
     recent_7_days: list[dict]
     recent_logs: list[dict]

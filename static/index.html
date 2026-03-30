@@ -179,6 +179,128 @@
       padding: 12px;
       border: 1px solid var(--line);
     }
+    .hero-visuals {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+      margin-top: 18px;
+    }
+    .cup-panel {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 18px;
+      align-items: center;
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--line);
+    }
+    .cup-shell {
+      position: relative;
+      width: 96px;
+      height: 132px;
+      margin: 0 auto;
+      border-radius: 18px 18px 26px 26px;
+      border: 3px solid rgba(201, 239, 255, 0.7);
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+      overflow: hidden;
+      box-shadow: inset 0 0 24px rgba(255,255,255,0.06);
+    }
+    .cup-shell::after {
+      content: "";
+      position: absolute;
+      right: -20px;
+      top: 24px;
+      width: 24px;
+      height: 50px;
+      border: 3px solid rgba(201, 239, 255, 0.5);
+      border-left: 0;
+      border-radius: 0 18px 18px 0;
+    }
+    .cup-fill {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 0%;
+      background:
+        linear-gradient(180deg, rgba(122,255,199,0.95), rgba(68,210,255,0.9)),
+        linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0));
+      transition: height 0.4s ease;
+    }
+    .cup-fill::before {
+      content: "";
+      position: absolute;
+      top: -10px;
+      left: -10%;
+      width: 120%;
+      height: 20px;
+      background: rgba(230, 252, 255, 0.45);
+      border-radius: 50%;
+      filter: blur(1px);
+    }
+    .cup-caption strong {
+      display: block;
+      font-size: 1.1rem;
+      margin-bottom: 6px;
+    }
+    .battery-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .battery-card {
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--line);
+    }
+    .battery-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .battery-title {
+      font-size: 0.98rem;
+      font-weight: 700;
+    }
+    .battery-pack {
+      position: relative;
+      height: 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(215, 240, 250, 0.45);
+      background: rgba(255,255,255,0.04);
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .battery-pack::after {
+      content: "";
+      position: absolute;
+      right: -5px;
+      top: 4px;
+      width: 4px;
+      height: 8px;
+      border-radius: 0 4px 4px 0;
+      background: rgba(215, 240, 250, 0.45);
+    }
+    .battery-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width 0.4s ease;
+    }
+    .battery-fill.is-low { background: linear-gradient(90deg, #ff9f7a, #ffd166); }
+    .battery-fill.is-full { background: linear-gradient(90deg, #7affc7, #9bffdf); }
+    .battery-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
     .grid {
       display: grid;
       grid-template-columns: 1.4fr 1fr;
@@ -282,7 +404,7 @@
     .status-bad { color: var(--danger); }
     .summary-strip {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 12px;
       margin-top: 20px;
     }
@@ -299,9 +421,10 @@
     }
     @media (max-width: 800px) {
       .topbar, .hero-actions { flex-direction: column; align-items: flex-start; }
-      .hero, .grid, .metrics, form, .summary-strip { grid-template-columns: 1fr; }
+      .hero, .grid, .metrics, form, .summary-strip, .battery-grid, .cup-panel { grid-template-columns: 1fr; }
       .ring { width: 170px; height: 170px; }
       .ring-inner { width: 126px; height: 126px; }
+      .cup-shell { width: 84px; height: 116px; }
     }
   </style>
 </head>
@@ -328,7 +451,7 @@
         </div>
         <form id="query-form">
           <input id="chat-id" placeholder="Telegram chat id" />
-          <input id="cups" type="number" min="1" max="20" value="1" />
+          <input id="amount-ml" type="number" min="1" max="5000" value="300" />
           <button type="submit">記錄喝水</button>
         </form>
         <p class="hint">先到 Telegram 對 bot 傳送 <code>/start</code>。如果有設定預設群組，頁面會自動載入。</p>
@@ -337,13 +460,45 @@
             <b>群組同步</b>
             <span class="hint">按 Telegram 按鈕後，這裡會即時更新。</span>
           </div>
-          <div class="summary-chip">
-            <b>提醒可視化</b>
-            <span class="hint">不只記錄杯數，也看得到 7 天節奏。</span>
+          <div class="summary-chip"><b id="block-1-title">晨間時段</b><span class="hint" id="block-1-body">尚未載入</span></div>
+          <div class="summary-chip"><b id="block-2-title">午間時段</b><span class="hint" id="block-2-body">尚未載入</span></div>
+          <div class="summary-chip"><b id="block-3-title">晚間時段</b><span class="hint" id="block-3-body">尚未載入</span></div>
+        </div>
+        <div class="hero-visuals">
+          <div class="cup-panel">
+            <div class="cup-shell">
+              <div class="cup-fill" id="cup-fill"></div>
+            </div>
+            <div class="cup-caption">
+              <strong>今日水杯</strong>
+              <div class="hint" id="cup-caption">目前還在起步，先補第一段水量。</div>
+            </div>
           </div>
-          <div class="summary-chip">
-            <b>快捷入口</b>
-            <span class="hint">訊息裡可直接點回儀表板頁面。</span>
+          <div class="battery-grid">
+            <div class="battery-card">
+              <div class="battery-top">
+                <span class="battery-title">晨間電量</span>
+                <span class="hint" id="battery-1-percent">0%</span>
+              </div>
+              <div class="battery-pack"><div class="battery-fill" id="battery-1-fill"></div></div>
+              <div class="battery-meta"><span id="battery-1-meta">0 / 0 ml</span><span id="battery-1-state">待開始</span></div>
+            </div>
+            <div class="battery-card">
+              <div class="battery-top">
+                <span class="battery-title">午間電量</span>
+                <span class="hint" id="battery-2-percent">0%</span>
+              </div>
+              <div class="battery-pack"><div class="battery-fill" id="battery-2-fill"></div></div>
+              <div class="battery-meta"><span id="battery-2-meta">0 / 0 ml</span><span id="battery-2-state">待開始</span></div>
+            </div>
+            <div class="battery-card">
+              <div class="battery-top">
+                <span class="battery-title">晚間電量</span>
+                <span class="hint" id="battery-3-percent">0%</span>
+              </div>
+              <div class="battery-pack"><div class="battery-fill" id="battery-3-fill"></div></div>
+              <div class="battery-meta"><span id="battery-3-meta">0 / 0 ml</span><span id="battery-3-state">待開始</span></div>
+            </div>
           </div>
         </div>
       </div>
@@ -351,7 +506,7 @@
         <div class="ring" id="ring">
           <div class="ring-inner">
             <div>
-              <div id="today-progress" style="font-size:1.8rem;font-weight:700;">0 / 16</div>
+              <div id="today-progress" style="font-size:1.8rem;font-weight:700;">0 / 3000 ml</div>
               <div class="hint">今日進度</div>
             </div>
           </div>
@@ -359,7 +514,7 @@
         <div class="metrics">
           <div class="metric">
             <strong id="debt">0</strong>
-            <span class="hint">補杯數</span>
+            <span class="hint">待補水量 (ml)</span>
           </div>
           <div class="metric">
             <strong id="week-ok">0</strong>
@@ -370,6 +525,7 @@
             <span class="hint">今日狀態</span>
           </div>
         </div>
+        <p class="hint" id="status-message" style="margin-top:14px;">尚未載入提醒節奏</p>
       </div>
     </section>
 
@@ -388,7 +544,7 @@
       <div class="card">
         <h2>提醒設定</h2>
         <form id="settings-form" class="settings-form">
-          <input id="daily-target" type="number" min="1" max="40" value="16" placeholder="每日目標" />
+          <input id="daily-target" type="number" min="250" max="10000" value="3000" placeholder="每日目標 ml" />
           <input id="start-hour" type="number" min="0" max="23" value="6" placeholder="開始小時" />
           <input id="end-hour" type="number" min="0" max="23" value="22" placeholder="結束小時" />
           <select id="timezone">
@@ -408,7 +564,7 @@
     const settingsForm = document.getElementById('settings-form');
     const chatIdInput = document.getElementById('chat-id');
     const activeChatId = document.getElementById('active-chat-id');
-    const cupsInput = document.getElementById('cups');
+    const amountInput = document.getElementById('amount-ml');
     const dailyTargetInput = document.getElementById('daily-target');
     const startHourInput = document.getElementById('start-hour');
     const endHourInput = document.getElementById('end-hour');
@@ -421,8 +577,50 @@
     const debt = document.getElementById('debt');
     const weekOk = document.getElementById('week-ok');
     const statusText = document.getElementById('status-text');
+    const statusMessage = document.getElementById('status-message');
+    const cupFill = document.getElementById('cup-fill');
+    const cupCaption = document.getElementById('cup-caption');
     const bars = document.getElementById('bars');
     const logList = document.getElementById('log-list');
+    const blockBodies = [
+      document.getElementById('block-1-body'),
+      document.getElementById('block-2-body'),
+      document.getElementById('block-3-body')
+    ];
+    const batteryFills = [
+      document.getElementById('battery-1-fill'),
+      document.getElementById('battery-2-fill'),
+      document.getElementById('battery-3-fill')
+    ];
+    const batteryPercents = [
+      document.getElementById('battery-1-percent'),
+      document.getElementById('battery-2-percent'),
+      document.getElementById('battery-3-percent')
+    ];
+    const batteryMetas = [
+      document.getElementById('battery-1-meta'),
+      document.getElementById('battery-2-meta'),
+      document.getElementById('battery-3-meta')
+    ];
+    const batteryStates = [
+      document.getElementById('battery-1-state'),
+      document.getElementById('battery-2-state'),
+      document.getElementById('battery-3-state')
+    ];
+
+    function blockStateText(status, ratio) {
+      if (ratio >= 1) return '已充滿';
+      if (status === 'current') return '進行中';
+      if (status === 'done') return '已結束';
+      return '待開始';
+    }
+
+    function cupMessage(ratio, achieved) {
+      if (achieved) return '今天這杯已滿，做得很穩。';
+      if (ratio >= 0.66) return '快滿杯了，今天後段維持住就很漂亮。';
+      if (ratio >= 0.33) return '已經喝到中段，繼續照節奏補水。';
+      return '目前還在起步，先補第一段水量。';
+    }
 
     async function loadSummary(chatId) {
       if (!chatId) return;
@@ -467,22 +665,48 @@
       const ratio = Math.min(1, data.target ? data.daily_total / data.target : 0);
       const degrees = Math.round(ratio * 360);
       ring.style.background = `conic-gradient(var(--accent) ${degrees}deg, var(--accent-2) ${degrees}deg, #dce8ef 0deg)`;
-      todayProgress.textContent = `${data.daily_total} / ${data.target}`;
-      debt.textContent = data.debt_cups;
+      todayProgress.textContent = `${data.daily_total} / ${data.target} ml`;
+      debt.textContent = data.debt_ml;
       weekOk.textContent = `${data.week_ok_days}/7`;
       const achieved = data.daily_total >= data.target;
       statusText.textContent = achieved ? '已達標' : '待補水';
       statusText.className = achieved ? 'status-ok' : 'status-bad';
+      statusMessage.textContent = data.status_message;
+      cupFill.style.height = `${Math.round(ratio * 100)}%`;
+      cupCaption.textContent = cupMessage(ratio, achieved);
+
+      batteryFills.forEach((fill, index) => {
+        fill.style.width = '0%';
+        fill.className = 'battery-fill';
+        batteryPercents[index].textContent = '0%';
+        batteryMetas[index].textContent = '0 / 0 ml';
+        batteryStates[index].textContent = '待開始';
+      });
+
+      (data.time_blocks || []).slice(0, 3).forEach((item, index) => {
+        blockBodies[index].textContent = `${item.label}｜${item.amount_ml}/${item.target_ml} ml`;
+        const blockRatio = Math.min(1, item.target_ml ? item.amount_ml / item.target_ml : 0);
+        batteryFills[index].style.width = `${Math.round(blockRatio * 100)}%`;
+        batteryFills[index].className = 'battery-fill';
+        if (blockRatio >= 1) {
+          batteryFills[index].classList.add('is-full');
+        } else if (blockRatio < 0.35 && item.status !== 'upcoming') {
+          batteryFills[index].classList.add('is-low');
+        }
+        batteryPercents[index].textContent = `${Math.round(blockRatio * 100)}%`;
+        batteryMetas[index].textContent = `${item.amount_ml} / ${item.target_ml} ml`;
+        batteryStates[index].textContent = blockStateText(item.status, blockRatio);
+      });
 
       bars.innerHTML = data.recent_7_days.map(item => {
-        const h = Math.max(8, Math.round((item.cups / Math.max(item.target, 1)) * 180));
+        const h = Math.max(8, Math.round((item.amount_ml / Math.max(item.target_ml, 1)) * 180));
         const label = item.date.slice(5);
         return `
           <div class="bar-col">
             <div class="bar">
               <div class="bar-fill" style="height:${Math.min(h,180)}px;opacity:${item.achieved ? 1 : 0.6}"></div>
             </div>
-            <div>${item.cups}/${item.target}</div>
+            <div>${item.amount_ml}/${item.target_ml} ml</div>
             <div class="bar-label">${label}</div>
           </div>
         `;
@@ -491,15 +715,15 @@
       logList.innerHTML = data.recent_logs.length ? data.recent_logs.map(item => `
         <li class="log-item">
           <span>${new Date(item.logged_at).toLocaleString()}</span>
-          <strong>+${item.cups} 杯</strong>
+          <strong>+${item.amount_ml} ml</strong>
         </li>
-      `).join('') : '<li class="log-item"><span>還沒有紀錄</span><strong>0 杯</strong></li>';
+      `).join('') : '<li class="log-item"><span>還沒有紀錄</span><strong>0 ml</strong></li>';
     }
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const chatId = chatIdInput.value.trim();
-      const cups = Number(cupsInput.value);
+      const amountMl = Number(amountInput.value);
       if (!chatId) {
         alert('請先輸入 Telegram chat id');
         return;
@@ -507,7 +731,7 @@
       const res = await fetch('/api/drink', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, cups })
+        body: JSON.stringify({ chat_id: chatId, amount_ml: amountMl })
       });
       if (!res.ok) {
         alert('記錄失敗，請確認 chat id 是否已啟用');

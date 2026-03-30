@@ -6,9 +6,11 @@ Telegram 喝水提醒 + 網頁紀錄儀表板。
 
 - Telegram `/start` 註冊使用者
 - 每小時自動提醒喝水
-- Telegram inline button 記錄喝水杯數
-- `/status` 與 `/drink 2` 指令
-- 網頁查看今日進度、近 7 天趨勢、最近喝水紀錄
+- 依提醒時段自動分成晨間、午間、晚間 3 個補水區段
+- Telegram inline button 以 `ml/cc` 記錄喝水量
+- 底部常駐補水選單，隨時可按 `+250`、`+500`、`+750`
+- `/status`、`/drink 300`、`/dashboard`
+- 網頁查看今日進度、三時段節奏、近 7 天趨勢、最近喝水紀錄
 
 ## 本機啟動
 

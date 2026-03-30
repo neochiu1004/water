@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from datetime import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from .db import Base, engine, get_db, session_scope
 from .models import User
 from .schemas import AppConfigOut, ManualDrinkIn, SummaryOut, UserSettingsIn, UserSettingsOut
 from .services import (
+    dashboard_url_for_chat,
     delete_message,
     record_drink,
     run_reminder_cycle,
@@ -32,6 +34,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 app = FastAPI(title="Water Reminder")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+logger = logging.getLogger("water-reminder")
 
 scheduler = AsyncIOScheduler(timezone=os.getenv("SCHEDULER_TIMEZONE", "Asia/Taipei"))
 polling_task: Optional[asyncio.Task] = None
@@ -48,6 +51,11 @@ async def startup_event():
         scheduler.start()
     global polling_task
     if os.getenv("TELEGRAM_USE_POLLING", "true").lower() == "true" and polling_task is None:
+        try:
+            await telegram_api("deleteWebhook", {"drop_pending_updates": False})
+            logger.info("Telegram webhook cleared for polling mode")
+        except Exception as exc:
+            logger.warning("Failed to clear Telegram webhook: %s", exc)
         polling_task = asyncio.create_task(poll_telegram_updates())
 
 
@@ -73,16 +81,21 @@ def get_user_or_404(db: Session, chat_id: str) -> User:
     return user
 
 
-def help_text() -> str:
-    return (
-        "可用指令：\n"
-        "/status 查看今天進度\n"
-        "/drink 2 手動記錄 2 杯\n"
-        "/water 2 手動記錄 2 杯\n"
-        "喝水 2 也可以直接記錄\n"
-        "+2、2杯、2 也可以直接記錄\n"
-        "/help 查看這份說明"
-    )
+def help_text(chat_id: Optional[str] = None) -> str:
+    lines = [
+        "可用指令：",
+        "/status 查看今天進度",
+        "/drink 300 手動記錄 300 ml",
+        "/water 300 手動記錄 300 ml",
+        "喝水 300 也可以直接記錄",
+        "+300、300ml、300cc 也可以直接記錄",
+        "/help 查看這份說明",
+    ]
+    if chat_id:
+        dashboard_url = dashboard_url_for_chat(chat_id)
+        if dashboard_url:
+            lines.append(f"儀表板：{dashboard_url}")
+    return "\n".join(lines)
 
 
 def parse_manual_drink(text: str) -> Optional[int]:
@@ -93,11 +106,13 @@ def parse_manual_drink(text: str) -> Optional[int]:
     shorthand = normalized
     if shorthand.startswith("+"):
         shorthand = shorthand[1:].strip()
-    if shorthand.endswith("杯"):
-        shorthand = shorthand[:-1].strip()
+    for suffix in ("ml", "ML", "cc", "CC", "毫升", "杯"):
+        if shorthand.endswith(suffix):
+            shorthand = shorthand[: -len(suffix)].strip()
+            break
     if shorthand.isdigit():
-        cups = int(shorthand)
-        return cups if cups > 0 else None
+        amount_ml = int(shorthand)
+        return amount_ml if amount_ml > 0 else None
 
     command_prefixes = ("/drink", "/water", "喝水", "喝了", "補水")
     for prefix in command_prefixes:
@@ -106,10 +121,11 @@ def parse_manual_drink(text: str) -> Optional[int]:
             if len(parts) < 2:
                 return None
             try:
-                cups = int(parts[1])
+                amount_raw = parts[1].lower().replace("ml", "").replace("cc", "").replace("毫升", "").replace("杯", "")
+                amount_ml = int(amount_raw)
             except ValueError:
                 return None
-            return cups if cups > 0 else None
+            return amount_ml if amount_ml > 0 else None
     return None
 
 
@@ -120,6 +136,7 @@ async def process_telegram_update(update: dict, db: Session):
     if message:
         chat_id = str(message.get("chat", {}).get("id"))
         text = (message.get("text") or "").strip()
+        logger.info("Incoming Telegram message chat_id=%s text=%r", chat_id, text)
         if not chat_id:
             return {"ok": True}
 
@@ -128,7 +145,7 @@ async def process_telegram_update(update: dict, db: Session):
             user = User(chat_id=chat_id)
             db.add(user)
             db.commit()
-            await send_text(chat_id, "喝水提醒已啟用。\n\n" + help_text())
+            await send_text(chat_id, "喝水提醒已啟用。\n\n" + help_text(chat_id))
             return {"ok": True}
 
         if user is None:
@@ -139,18 +156,34 @@ async def process_telegram_update(update: dict, db: Session):
             summary = summary_for_user(db, user)
             await send_text(
                 chat_id,
-                f"今日 {summary['daily_total']} / {summary['target']} 杯，本週達標 {summary['week_ok_days']} / 7 天，補杯數 {summary['debt_cups']}。",
+                (
+                    f"今日 {summary['daily_total']} / {summary['target']} ml，本週達標 {summary['week_ok_days']} / 7 天，"
+                    f"待補水量 {summary['debt_ml']} ml。\n{summary['status_message']}"
+                ),
             )
+        elif text.startswith("/dashboard") or text == "喝水儀表板":
+            dashboard_url = dashboard_url_for_chat(chat_id)
+            if dashboard_url:
+                await send_text(chat_id, f"喝水儀表板：{dashboard_url}")
+            else:
+                await send_text(chat_id, "目前尚未設定儀表板連結。")
         elif text.startswith("/help"):
-            await send_text(chat_id, help_text())
+            await send_text(chat_id, help_text(chat_id))
         elif parse_manual_drink(text) is not None:
-            cups = parse_manual_drink(text)
-            if cups is None:
-                await send_text(chat_id, "用法：/drink 2、/water 2，也可直接輸入：喝水 2、+2、2杯、2")
+            amount_ml = parse_manual_drink(text)
+            if amount_ml is None:
+                await send_text(chat_id, "用法：/drink 300、/water 300，也可直接輸入：喝水 300、+300、300ml、300cc")
                 return {"ok": True}
-            state, daily = record_drink(db, user, cups, source="telegram-command")
+            state, daily = record_drink(db, user, amount_ml, source="telegram-command")
             db.commit()
-            await send_text(chat_id, f"已記錄 {cups} 杯。今日累計 {daily.cups} / {daily.target}，補杯數 {state.debt_cups}。")
+            summary = summary_for_user(db, user)
+            await send_text(
+                chat_id,
+                (
+                    f"已記錄 {amount_ml} ml。今日累計 {daily.total_ml} / {daily.target_ml} ml，"
+                    f"待補水量 {state.debt_ml} ml。\n{summary['status_message']}"
+                ),
+            )
         elif (
             text.startswith("/drink")
             or text.startswith("/water")
@@ -159,23 +192,33 @@ async def process_telegram_update(update: dict, db: Session):
             or text.startswith("補水")
             or text.startswith("+")
         ):
-            await send_text(chat_id, "用法：/drink 2、/water 2，也可直接輸入：喝水 2、+2、2杯、2")
+            await send_text(chat_id, "用法：/drink 300、/water 300，也可直接輸入：喝水 300、+300、300ml、300cc")
+        else:
+            await send_text(chat_id, help_text(chat_id))
         return {"ok": True}
 
     if callback:
         data = callback.get("data") or ""
+        logger.info("Incoming Telegram callback data=%r", data)
         if not data.startswith("WATER_"):
             return {"ok": True}
         chat_id = str(callback.get("message", {}).get("chat", {}).get("id"))
         message_id = callback.get("message", {}).get("message_id")
-        cups = int(data.split("_", 1)[1])
+        amount_ml = int(data.split("_", 1)[1])
         user = get_user_or_404(db, chat_id)
-        state, daily = record_drink(db, user, cups, source="telegram-button")
+        state, daily = record_drink(db, user, amount_ml, source="telegram-button")
         if message_id:
             await delete_message(chat_id, message_id)
             state.last_message_id = None
         db.commit()
-        await send_text(chat_id, f"已記錄喝水 {cups} 杯。今日累計 {daily.cups} / {daily.target}，補杯數 {state.debt_cups}。")
+        summary = summary_for_user(db, user)
+        await send_text(
+            chat_id,
+            (
+                f"已記錄喝水 {amount_ml} ml。今日累計 {daily.total_ml} / {daily.target_ml} ml，"
+                f"待補水量 {state.debt_ml} ml。\n{summary['status_message']}"
+            ),
+        )
         return {"ok": True}
 
     return {"ok": True}
@@ -195,11 +238,13 @@ async def poll_telegram_updates():
             )
             for update in response.get("result", []):
                 polling_offset = max(polling_offset, int(update["update_id"]) + 1)
+                logger.info("Processing Telegram update_id=%s", update.get("update_id"))
                 with session_scope() as db:
                     await process_telegram_update(update, db)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            logger.exception("Telegram polling loop failed: %s", exc)
             await asyncio.sleep(5)
         else:
             await asyncio.sleep(1)
@@ -252,13 +297,13 @@ async def update_settings(chat_id: str, payload: UserSettingsIn, db: Session = D
 @app.post("/api/drink")
 async def manual_drink(payload: ManualDrinkIn, db: Session = Depends(get_db)):
     user = get_user_or_404(db, payload.chat_id)
-    state, daily = record_drink(db, user, payload.cups, source="web")
+    state, daily = record_drink(db, user, payload.amount_ml, source="web")
     db.commit()
     return {
         "ok": True,
-        "daily_total": daily.cups,
-        "target": daily.target,
-        "debt_cups": state.debt_cups,
+        "daily_total": daily.total_ml,
+        "target": daily.target_ml,
+        "debt_ml": state.debt_ml,
     }
 
 

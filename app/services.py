@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional, Union
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -25,7 +26,7 @@ def ensure_user_state(db: Session, user: User, local_today: date) -> WaterState:
     if user.state is None:
         user.state = WaterState(
             date_key=local_today,
-            debt_cups=0,
+            debt_ml=0,
             daily_total=0,
             status="idle",
         )
@@ -34,7 +35,7 @@ def ensure_user_state(db: Session, user: User, local_today: date) -> WaterState:
 
     if user.state.date_key != local_today:
         user.state.date_key = local_today
-        user.state.debt_cups = 0
+        user.state.debt_ml = 0
         user.state.daily_total = 0
         user.state.status = "idle"
         user.state.last_message_id = None
@@ -48,13 +49,148 @@ def ensure_daily_record(db: Session, user: User, day: date) -> WaterDaily:
         daily = WaterDaily(
             user_id=user.id,
             date_key=day,
-            cups=0,
-            target=user.daily_target,
+            total_ml=0,
+            target_ml=user.daily_target,
             achieved=False,
         )
         db.add(daily)
         db.flush()
     return daily
+
+
+def local_day_utc_bounds(tz_name: str, local_day: date) -> tuple[datetime, datetime]:
+    tz = ZoneInfo(tz_name)
+    start_local = datetime.combine(local_day, time.min, tzinfo=tz)
+    end_local = start_local + timedelta(days=1)
+    return (
+        start_local.astimezone(timezone.utc).replace(tzinfo=None),
+        end_local.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+
+def build_time_blocks(user: User, local_day: date) -> list[dict]:
+    tz = ZoneInfo(user.timezone)
+    total_slots = max(1, user.reminder_end.hour - user.reminder_start.hour + 1)
+    base_slots, slot_remainder = divmod(total_slots, 3)
+    base_target, target_remainder = divmod(user.daily_target, 3)
+    block_names = ("晨間", "午間", "晚間")
+
+    blocks = []
+    current_hour = user.reminder_start.hour
+    for index, name in enumerate(block_names):
+        slot_count = base_slots + (1 if index < slot_remainder else 0)
+        target_ml = base_target + (1 if index < target_remainder else 0)
+        start_hour = current_hour
+        end_hour = current_hour + slot_count - 1
+        start_at = datetime.combine(local_day, time(start_hour, 0), tzinfo=tz)
+        end_at = datetime.combine(local_day, time(min(end_hour, 23), 59, 59), tzinfo=tz)
+        blocks.append(
+            {
+                "name": name,
+                "index": index,
+                "slot_count": slot_count,
+                "target_ml": target_ml,
+                "start_hour": start_hour,
+                "end_hour": end_hour,
+                "start_at": start_at,
+                "end_at": end_at,
+            }
+        )
+        current_hour = end_hour + 1
+    return blocks
+
+
+def block_step_ml(block: dict) -> int:
+    slot_count = max(1, block["slot_count"])
+    block_target = block["target_ml"]
+    return max(100, round(block_target / slot_count / 50) * 50)
+
+
+def reminder_step_ml(user: User) -> int:
+    local_now = now_in_timezone(user.timezone)
+    current_blocks = build_time_blocks(user, local_now.date())
+    current_hour = local_now.hour
+    for block in current_blocks:
+        if block["start_hour"] <= current_hour <= block["end_hour"]:
+            return block_step_ml(block)
+    return block_step_ml(current_blocks[0])
+
+
+def logs_for_local_day(db: Session, user: User, local_day: date) -> list[WaterLog]:
+    start_utc, end_utc = local_day_utc_bounds(user.timezone, local_day)
+    return db.scalars(
+        select(WaterLog)
+        .where(WaterLog.user_id == user.id, WaterLog.logged_at >= start_utc, WaterLog.logged_at < end_utc)
+        .order_by(WaterLog.logged_at.asc())
+    ).all()
+
+
+def summarize_time_blocks(db: Session, user: User, local_day: date, local_now: Optional[datetime] = None) -> list[dict]:
+    if local_now is None:
+        local_now = now_in_timezone(user.timezone)
+    blocks = build_time_blocks(user, local_day)
+    logs = logs_for_local_day(db, user, local_day)
+    cumulative_target = 0
+    summaries = []
+
+    for block in blocks:
+        block_total_ml = 0
+        for log in logs:
+            log_local = log.logged_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(user.timezone))
+            if block["start_at"] <= log_local <= block["end_at"]:
+                block_total_ml += log.amount_ml
+
+        cumulative_target += block["target_ml"]
+        status = "upcoming"
+        if local_now > block["end_at"]:
+            status = "done"
+        elif block["start_at"] <= local_now <= block["end_at"]:
+            status = "current"
+
+        summaries.append(
+            {
+                "name": block["name"],
+                "label": f"{block['start_hour']:02d}:00-{block['end_hour']:02d}:59",
+                "target_ml": block["target_ml"],
+                "amount_ml": block_total_ml,
+                "remaining_ml": max(0, block["target_ml"] - block_total_ml),
+                "status": status,
+                "cumulative_target_ml": cumulative_target,
+                "slot_count": block["slot_count"],
+                "start_hour": block["start_hour"],
+                "end_hour": block["end_hour"],
+            }
+        )
+    return summaries
+
+
+def current_time_block(blocks: list[dict]) -> dict:
+    for block in blocks:
+        if block["status"] == "current":
+            return block
+    for block in blocks:
+        if block["status"] == "upcoming":
+            return block
+    return blocks[-1]
+
+
+def expected_total_by_now(blocks: list[dict], local_now: datetime) -> int:
+    expected = 0
+    current_hour = local_now.hour
+    for block in blocks:
+        if current_hour > block["end_hour"]:
+            expected += block["target_ml"]
+            continue
+        if current_hour < block["start_hour"]:
+            break
+        elapsed_slots = max(0, current_hour - block["start_hour"])
+        if block["slot_count"] <= 1:
+            block_expected = 0
+        else:
+            block_expected = round(block["target_ml"] * elapsed_slots / (block["slot_count"] - 1))
+        expected += min(block["target_ml"], block_expected)
+        break
+    return expected
 
 
 def build_recent7(db: Session, user: User, today: date) -> tuple[list[dict], int]:
@@ -72,16 +208,16 @@ def build_recent7(db: Session, user: User, today: date) -> tuple[list[dict], int
     for offset in range(7):
         current = start + timedelta(days=offset)
         row = row_map.get(current.isoformat())
-        cups = row.cups if row else 0
-        target = row.target if row else user.daily_target
+        total_ml = row.total_ml if row else 0
+        target_ml = row.target_ml if row else user.daily_target
         achieved = row.achieved if row else False
         if achieved:
             ok_days += 1
         recent.append(
             {
                 "date": current.isoformat(),
-                "cups": cups,
-                "target": target,
+                "amount_ml": total_ml,
+                "target_ml": target_ml,
                 "achieved": achieved,
             }
         )
@@ -97,58 +233,100 @@ def current_fail_streak(recent7: list[dict]) -> int:
     return streak
 
 
+def build_status_message(daily: WaterDaily, blocks: list[dict], week_ok_days: int, fail_streak: int) -> str:
+    current_block = current_time_block(blocks)
+    if daily.achieved:
+        rewards = [
+            "獎賞自己一個小休息，今天這條線有守住。",
+            "今天任務完成，可以把這天記成補水勝利日。",
+            "很穩，今天的水量已經收滿，可以輕鬆維持。",
+        ]
+        return f"🏆 今天已達標。{rewards[week_ok_days % len(rewards)]}"
+    if current_block["status"] == "current" and current_block["remaining_ml"] == 0:
+        return f"✨ {current_block['name']}時段已達標，下一段照這個節奏就很好。"
+    if fail_streak >= 3:
+        return f"🔥 已連續 {fail_streak} 天未達標，這一段先補齊 {current_block['remaining_ml']} ml。"
+    if week_ok_days >= 5:
+        return f"🏅 本週已達標 {week_ok_days}/7 天，這一段再補 {current_block['remaining_ml']} ml 就很漂亮。"
+    return f"再補 {current_block['remaining_ml']} ml，這個時段就能跟上節奏。"
+
+
 def build_reminder_text(db: Session, user: User, state: WaterState, daily: WaterDaily, local_today: date) -> str:
+    local_now = now_in_timezone(user.timezone)
     recent7, week_ok_days = build_recent7(db, user, local_today)
     recent3_marks = ["✅" if item["achieved"] else "❌" for item in recent7[-3:]]
     fail_streak = current_fail_streak(recent7)
+    blocks = summarize_time_blocks(db, user, local_today, local_now)
+    current_block = current_time_block(blocks)
+    step_ml = block_step_ml(current_block)
 
     level = "💧"
-    note = "記得補水一下"
-    if state.debt_cups > 5:
+    note = f"目前在 {current_block['name']}時段，目標 {current_block['target_ml']} ml。"
+    if state.debt_ml >= step_ml * 4:
         level = "🚨🚨🚨"
-        note = "強制提醒：已超過 5 杯，請立刻喝水！"
-    elif state.debt_cups >= 5:
+        note = f"{current_block['name']}時段明顯落後，建議現在先喝 {min(state.debt_ml, step_ml * 2)} ml。"
+    elif state.debt_ml >= step_ml * 2:
         level = "🚨"
-        note = "已累積很久沒喝水，建議現在先補足"
-    elif state.debt_cups >= 3:
+        note = f"{current_block['name']}時段有點落後，這次先補 {step_ml} ml 會比較順。"
+    elif state.debt_ml > 0:
         level = "⚠️"
-        note = "有點久沒喝水了"
+        note = f"距離這個時段達標還差 {current_block['remaining_ml']} ml。"
 
-    if daily.achieved:
-        motivation = "🏆 今天已達標，繼續保持。"
-    elif fail_streak >= 3:
-        motivation = f"🔥 已連續 {fail_streak} 天未達標，今天至少先補到 {daily.target} 杯。"
-    elif week_ok_days >= 5:
-        motivation = f"🏅 本週已達標 {week_ok_days}/7 天，再撐一下就很漂亮。"
-    else:
-        motivation = f"再喝 {max(0, daily.target - daily.cups)} 杯，今天就能達標。"
+    motivation = build_status_message(daily, blocks, week_ok_days, fail_streak)
 
     return (
         f"{level} 喝水提醒\n\n"
-        f"目前應補杯數：{state.debt_cups}\n"
-        f"今日已喝：{daily.cups} / {daily.target} 杯\n"
+        f"時段：{current_block['name']} {current_block['label']}\n"
+        f"建議這次先補：{step_ml} ml\n"
+        f"目前應補水量：{state.debt_ml} ml\n"
+        f"今日已喝：{daily.total_ml} / {daily.target_ml} ml\n"
+        f"本時段進度：{current_block['amount_ml']} / {current_block['target_ml']} ml\n"
         f"本週達標：{week_ok_days} / 7 天\n"
         f"近三日：{' '.join(recent3_marks)}\n"
         f"{note}\n{motivation}\n\n"
-        "請點擊按鈕記錄這次喝了幾杯水"
+        "請點擊按鈕記錄這次喝了多少 ml"
     )
 
 
-def reminder_keyboard() -> dict:
+def reminder_keyboard(user: User) -> dict:
+    step_ml = reminder_step_ml(user)
     rows = [
         [
-            {"text": "喝水*1", "callback_data": "WATER_1"},
-            {"text": "喝水*2", "callback_data": "WATER_2"},
-            {"text": "喝水*3", "callback_data": "WATER_3"},
+            {"text": f"{step_ml} ml", "callback_data": f"WATER_{step_ml}"},
+            {"text": f"{step_ml * 2} ml", "callback_data": f"WATER_{step_ml * 2}"},
+            {"text": f"{step_ml * 3} ml", "callback_data": f"WATER_{step_ml * 3}"},
         ],
         [
-            {"text": "喝水*4", "callback_data": "WATER_4"},
-            {"text": "喝水*5", "callback_data": "WATER_5"},
+            {"text": f"{500} ml", "callback_data": "WATER_500"},
+            {"text": f"{750} ml", "callback_data": "WATER_750"},
         ],
     ]
     if DASHBOARD_URL:
         rows.append([{"text": "查看喝水儀表板", "url": DASHBOARD_URL}])
     return {"inline_keyboard": rows}
+
+
+def dashboard_url_for_chat(chat_id: str) -> str:
+    if not DASHBOARD_URL:
+        return ""
+    separator = "&" if "?" in DASHBOARD_URL else "?"
+    return f"{DASHBOARD_URL}{separator}{urlencode({'chat_id': chat_id})}"
+
+
+def persistent_menu_keyboard(chat_id: str) -> dict:
+    rows = [
+        [{"text": "+250"}, {"text": "+500"}, {"text": "+750"}],
+        [{"text": "250ml"}, {"text": "500ml"}, {"text": "/status"}],
+    ]
+
+    rows.append([{"text": "/dashboard"}, {"text": "/help"}])
+
+    return {
+        "keyboard": rows,
+        "resize_keyboard": True,
+        "is_persistent": True,
+        "input_field_placeholder": "點底下按鈕快速補水，或輸入 /drink 300",
+    }
 
 
 async def telegram_api(method: str, payload: dict) -> dict:
@@ -178,7 +356,7 @@ async def send_reminder(user: User, text: str) -> Optional[str]:
         {
             "chat_id": user.chat_id,
             "text": text,
-            "reply_markup": reminder_keyboard(),
+            "reply_markup": reminder_keyboard(user),
         },
     )
     message = result.get("result") or {}
@@ -186,48 +364,64 @@ async def send_reminder(user: User, text: str) -> Optional[str]:
 
 
 async def send_text(chat_id: str, text: str) -> None:
-    await telegram_api("sendMessage", {"chat_id": chat_id, "text": text})
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "reply_markup": persistent_menu_keyboard(chat_id),
+    }
+    await telegram_api("sendMessage", payload)
 
 
-def record_drink(db: Session, user: User, cups: int, source: str = "telegram") -> tuple[WaterState, WaterDaily]:
+def record_drink(db: Session, user: User, amount_ml: int, source: str = "telegram") -> tuple[WaterState, WaterDaily]:
     local_now = now_in_timezone(user.timezone)
     local_today = local_now.date()
     state = ensure_user_state(db, user, local_today)
     daily = ensure_daily_record(db, user, local_today)
 
-    debt_reduction = min(cups, max(0, state.debt_cups))
-    state.debt_cups = max(0, state.debt_cups - debt_reduction)
-    state.daily_total = daily.cups + cups
+    debt_reduction = min(amount_ml, max(0, state.debt_ml))
+    state.debt_ml = max(0, state.debt_ml - debt_reduction)
+    state.daily_total = daily.total_ml + amount_ml
     state.last_drink_at = local_now.astimezone(timezone.utc).replace(tzinfo=None)
-    state.status = "done" if state.daily_total >= daily.target else ("drank" if state.debt_cups == 0 else "waiting")
+    state.status = "done" if state.daily_total >= daily.target_ml else ("drank" if state.debt_ml == 0 else "waiting")
 
-    daily.cups += cups
-    daily.target = user.daily_target
-    daily.achieved = daily.cups >= daily.target
+    daily.total_ml += amount_ml
+    daily.target_ml = user.daily_target
+    daily.achieved = daily.total_ml >= daily.target_ml
 
-    db.add(WaterLog(user_id=user.id, cups=cups, source=source, logged_at=datetime.utcnow()))
+    db.add(WaterLog(user_id=user.id, amount_ml=amount_ml, source=source, logged_at=datetime.utcnow()))
     db.flush()
     return state, daily
 
 
 def summary_for_user(db: Session, user: User) -> dict:
-    local_today = now_in_timezone(user.timezone).date()
+    local_now = now_in_timezone(user.timezone)
+    local_today = local_now.date()
     state = ensure_user_state(db, user, local_today)
     daily = ensure_daily_record(db, user, local_today)
     recent7, week_ok_days = build_recent7(db, user, local_today)
+    blocks = summarize_time_blocks(db, user, local_today, local_now)
+    fail_streak = current_fail_streak(recent7)
+    if daily.achieved:
+        state.debt_ml = 0
+        state.status = "done"
+    else:
+        state.debt_ml = max(0, expected_total_by_now(blocks, local_now) - daily.total_ml)
+        state.status = "drank" if state.debt_ml == 0 else "waiting"
     recent_logs = db.scalars(
         select(WaterLog).where(WaterLog.user_id == user.id).order_by(WaterLog.logged_at.desc()).limit(10)
     ).all()
     return {
         "today": local_today.isoformat(),
-        "daily_total": daily.cups,
-        "target": daily.target,
-        "debt_cups": state.debt_cups,
+        "daily_total": daily.total_ml,
+        "target": daily.target_ml,
+        "debt_ml": state.debt_ml,
         "week_ok_days": week_ok_days,
+        "status_message": build_status_message(daily, blocks, week_ok_days, fail_streak),
+        "time_blocks": blocks,
         "recent_7_days": recent7,
         "recent_logs": [
             {
-                "cups": row.cups,
+                "amount_ml": row.amount_ml,
                 "source": row.source,
                 "logged_at": row.logged_at.isoformat(),
             }
@@ -248,14 +442,14 @@ async def run_reminder_cycle(db: Session) -> int:
             local_today = local_now.date()
             state = ensure_user_state(db, user, local_today)
             daily = ensure_daily_record(db, user, local_today)
+            blocks = summarize_time_blocks(db, user, local_today, local_now)
 
             if daily.achieved:
-                state.debt_cups = 0
+                state.debt_ml = 0
                 state.status = "done"
                 continue
 
-            if local_now.hour != user.reminder_start.hour or local_now.minute != 0:
-                state.debt_cups += 1
+            state.debt_ml = max(0, expected_total_by_now(blocks, local_now) - daily.total_ml)
             state.status = "waiting"
 
             await delete_message(user.chat_id, state.last_message_id)
