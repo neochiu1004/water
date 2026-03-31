@@ -25,7 +25,9 @@ from .services import (
     delete_message,
     migrate_legacy_cup_units,
     record_drink,
+    render_summary_image,
     run_reminder_cycle,
+    send_summary_photo,
     send_text,
     summary_for_user,
     telegram_api,
@@ -195,6 +197,10 @@ async def process_telegram_update(update: dict, db: Session):
                     f"待補水量 {state.debt_ml} ml。\n{summary['status_message']}"
                 ),
             )
+            try:
+                await send_summary_photo(chat_id, render_summary_image(user, summary), "Hydration snapshot")
+            except Exception as exc:
+                logger.warning("Failed to send hydration snapshot: %s", exc)
         elif (
             text.startswith("/drink")
             or text.startswith("/water")
@@ -230,6 +236,10 @@ async def process_telegram_update(update: dict, db: Session):
                 f"待補水量 {state.debt_ml} ml。\n{summary['status_message']}"
             ),
         )
+        try:
+            await send_summary_photo(chat_id, render_summary_image(user, summary), "Hydration snapshot")
+        except Exception as exc:
+            logger.warning("Failed to send hydration snapshot: %s", exc)
         return {"ok": True}
 
     return {"ok": True}

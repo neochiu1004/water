@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional, Union
@@ -7,6 +8,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import httpx
+from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,10 +21,27 @@ DASHBOARD_URL = os.getenv("DASHBOARD_URL", "").strip()
 DASHBOARD_LAN_URL = os.getenv("DASHBOARD_LAN_URL", "").strip()
 LEGACY_CUP_TO_ML = 200
 LEGACY_CUP_THRESHOLD = 40
+SUMMARY_IMAGE_WIDTH = 1080
+SUMMARY_IMAGE_HEIGHT = 900
 
 
 def now_in_timezone(tz_name: str) -> datetime:
     return datetime.now(ZoneInfo(tz_name))
+
+
+def load_font(size: int, bold: bool = False):
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size=size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
 
 
 def migrate_legacy_cup_units(db: Session) -> int:
@@ -370,6 +389,65 @@ def dashboard_url_for_chat(chat_id: str) -> str:
     return links[0][1] if links else ""
 
 
+def render_summary_image(user: User, summary: dict) -> bytes:
+    image = Image.new("RGB", (SUMMARY_IMAGE_WIDTH, SUMMARY_IMAGE_HEIGHT), "#F6FBF6")
+    draw = ImageDraw.Draw(image)
+
+    title_font = load_font(60, bold=True)
+    heading_font = load_font(34, bold=True)
+    body_font = load_font(26)
+    small_font = load_font(22)
+
+    draw.rounded_rectangle((40, 36, 1040, 864), radius=34, fill="#FFFFFF", outline="#D8EBDF")
+    draw.text((78, 78), "Hydration Snapshot", font=title_font, fill="#1C3729")
+    draw.text((82, 154), f"Today {summary['daily_total']} / {summary['target']} ml", font=heading_font, fill="#2D6043")
+
+    progress_left = 82
+    progress_top = 220
+    progress_right = 998
+    progress_bottom = 260
+    draw.rounded_rectangle((progress_left, progress_top, progress_right, progress_bottom), radius=20, fill="#EDF6EF")
+    ratio = 0 if not summary["target"] else min(1, summary["daily_total"] / summary["target"])
+    fill_right = progress_left + int((progress_right - progress_left) * ratio)
+    draw.rounded_rectangle((progress_left, progress_top, max(progress_left + 24, fill_right), progress_bottom), radius=20, fill="#69C792")
+    draw.text((82, 284), f"Remaining {summary['debt_ml']} ml", font=body_font, fill="#6B8B79")
+    draw.text((640, 284), f"Week {summary['week_ok_days']} / 7", font=body_font, fill="#6B8B79")
+
+    blocks = summary.get("time_blocks", [])[:3]
+    block_top = 360
+    block_labels = {"晨間": "Morning", "午間": "Midday", "晚間": "Evening"}
+    for index, block in enumerate(blocks):
+        card_left = 82 + index * 302
+        card_right = card_left + 270
+        draw.rounded_rectangle((card_left, block_top, card_right, block_top + 180), radius=26, fill="#F9FFFB", outline="#D8EBDF")
+        draw.text((card_left + 22, block_top + 22), block_labels.get(block["name"], block["name"]), font=heading_font, fill="#214A33")
+        draw.text((card_left + 22, block_top + 64), block["label"], font=small_font, fill="#6B8B79")
+        draw.rounded_rectangle((card_left + 22, block_top + 104, card_right - 22, block_top + 124), radius=10, fill="#EAF4ED")
+        block_ratio = 0 if not block["target_ml"] else min(1, block["amount_ml"] / block["target_ml"])
+        block_fill_right = card_left + 22 + int((card_right - card_left - 44) * block_ratio)
+        draw.rounded_rectangle((card_left + 22, block_top + 104, max(card_left + 40, block_fill_right), block_top + 124), radius=10, fill="#8FE3C9")
+        draw.text((card_left + 22, block_top + 138), f"{block['amount_ml']} / {block['target_ml']} ml", font=small_font, fill="#355F47")
+
+    log_top = 596
+    draw.text((82, log_top), "Recent Logs", font=heading_font, fill="#1C3729")
+    recent_logs = summary.get("recent_logs", [])[:5]
+    row_top = log_top + 56
+    if not recent_logs:
+        draw.text((82, row_top), "No records yet", font=body_font, fill="#6B8B79")
+    for index, item in enumerate(recent_logs):
+        y = row_top + index * 46
+        timestamp = item["logged_at"].replace("T", " ")[:16]
+        draw.text((82, y), timestamp, font=small_font, fill="#456A55")
+        draw.text((760, y), f"+{item['amount_ml']} ml", font=small_font, fill="#214A33")
+
+    footer = now_in_timezone(user.timezone).strftime("Updated %Y-%m-%d %H:%M")
+    draw.text((82, 814), footer, font=small_font, fill="#7A9A86")
+
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
 def persistent_menu_keyboard(chat_id: str) -> dict:
     rows = [
         [{"text": "+250"}, {"text": "+500"}, {"text": "+750"}],
@@ -396,6 +474,19 @@ async def telegram_api(method: str, payload: dict) -> dict:
                 f"Telegram API {method} failed: status={response.status_code} body={response.text} payload={payload}"
             )
         return response.json()
+
+
+async def send_summary_photo(chat_id: str, png_bytes: bytes, caption: Optional[str] = None) -> None:
+    if not TELEGRAM_API_BASE:
+        return
+    data = {"chat_id": chat_id}
+    if caption:
+        data["caption"] = caption
+    files = {"photo": ("hydration-summary.png", png_bytes, "image/png")}
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(f"{TELEGRAM_API_BASE}/sendPhoto", data=data, files=files)
+        if response.is_error:
+            raise RuntimeError(f"Telegram API sendPhoto failed: status={response.status_code} body={response.text}")
 
 
 async def delete_message(chat_id: str, message_id: Optional[Union[str, int]]) -> None:
