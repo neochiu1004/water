@@ -171,6 +171,10 @@ async def process_telegram_update(update: dict, db: Session):
                     f"待補水量 {summary['debt_ml']} ml。\n{summary['status_message']}"
                 ),
             )
+            try:
+                await send_summary_photo(chat_id, render_summary_image(user, summary), "Hydration snapshot")
+            except Exception as exc:
+                logger.warning("Failed to send hydration snapshot: %s", exc)
         elif text.startswith("/dashboard") or text == "喝水儀表板":
             dashboard_links = dashboard_links_for_chat(chat_id)
             if dashboard_links:
