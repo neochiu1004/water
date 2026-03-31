@@ -16,6 +16,7 @@ from .models import User, WaterDaily, WaterLog, WaterState
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}" if TELEGRAM_TOKEN else ""
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "").strip()
+DASHBOARD_LAN_URL = os.getenv("DASHBOARD_LAN_URL", "").strip()
 LEGACY_CUP_TO_ML = 200
 LEGACY_CUP_THRESHOLD = 40
 
@@ -343,11 +344,26 @@ def reminder_keyboard(user: User) -> dict:
     return {"inline_keyboard": rows}
 
 
+def dashboard_links_for_chat(chat_id: str) -> list[tuple[str, str]]:
+    links: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    for label, base_url in (("LAN", DASHBOARD_LAN_URL), ("Tailscale", DASHBOARD_URL)):
+        if not base_url:
+            continue
+        separator = "&" if "?" in base_url else "?"
+        full_url = f"{base_url}{separator}{urlencode({'chat_id': chat_id})}"
+        if full_url in seen:
+            continue
+        seen.add(full_url)
+        links.append((label, full_url))
+
+    return links
+
+
 def dashboard_url_for_chat(chat_id: str) -> str:
-    if not DASHBOARD_URL:
-        return ""
-    separator = "&" if "?" in DASHBOARD_URL else "?"
-    return f"{DASHBOARD_URL}{separator}{urlencode({'chat_id': chat_id})}"
+    links = dashboard_links_for_chat(chat_id)
+    return links[0][1] if links else ""
 
 
 def persistent_menu_keyboard(chat_id: str) -> dict:

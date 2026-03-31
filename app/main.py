@@ -19,6 +19,7 @@ from .db import Base, engine, get_db, session_scope
 from .models import User
 from .schemas import AppConfigOut, ManualDrinkIn, SummaryOut, UserSettingsIn, UserSettingsOut
 from .services import (
+    dashboard_links_for_chat,
     dashboard_url_for_chat,
     delete_message,
     migrate_legacy_cup_units,
@@ -167,9 +168,12 @@ async def process_telegram_update(update: dict, db: Session):
                 ),
             )
         elif text.startswith("/dashboard") or text == "喝水儀表板":
-            dashboard_url = dashboard_url_for_chat(chat_id)
-            if dashboard_url:
-                await send_text(chat_id, f"喝水儀表板：{dashboard_url}")
+            dashboard_links = dashboard_links_for_chat(chat_id)
+            if dashboard_links:
+                lines = ["喝水儀表板："]
+                for label, url in dashboard_links:
+                    lines.append(f"{label}：{url}")
+                await send_text(chat_id, "\n".join(lines))
             else:
                 await send_text(chat_id, "目前尚未設定儀表板連結。")
         elif text.startswith("/help"):
