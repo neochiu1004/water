@@ -21,6 +21,7 @@ from .schemas import AppConfigOut, ManualDrinkIn, SummaryOut, UserSettingsIn, Us
 from .services import (
     dashboard_url_for_chat,
     delete_message,
+    migrate_legacy_cup_units,
     record_drink,
     run_reminder_cycle,
     send_text,
@@ -46,6 +47,10 @@ DASHBOARD_URL = os.getenv("DASHBOARD_URL")
 @app.on_event("startup")
 async def startup_event():
     Base.metadata.create_all(bind=engine)
+    with session_scope() as db:
+        migrated = migrate_legacy_cup_units(db)
+        if migrated:
+            logger.info("Migrated %s legacy cup-based values to ml", migrated)
     if not scheduler.running:
         scheduler.add_job(scheduled_reminder, CronTrigger(minute=0), id="hourly-reminder", replace_existing=True)
         scheduler.start()

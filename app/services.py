@@ -16,10 +16,47 @@ from .models import User, WaterDaily, WaterLog, WaterState
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}" if TELEGRAM_TOKEN else ""
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "").strip()
+LEGACY_CUP_TO_ML = 200
+LEGACY_CUP_THRESHOLD = 40
 
 
 def now_in_timezone(tz_name: str) -> datetime:
     return datetime.now(ZoneInfo(tz_name))
+
+
+def migrate_legacy_cup_units(db: Session) -> int:
+    changed = 0
+
+    for user in db.scalars(select(User)).all():
+        if 0 < user.daily_target <= LEGACY_CUP_THRESHOLD:
+            user.daily_target *= LEGACY_CUP_TO_ML
+            changed += 1
+
+    for state in db.scalars(select(WaterState)).all():
+        if 0 < state.debt_ml <= LEGACY_CUP_THRESHOLD:
+            state.debt_ml *= LEGACY_CUP_TO_ML
+            changed += 1
+        if 0 < state.daily_total <= LEGACY_CUP_THRESHOLD:
+            state.daily_total *= LEGACY_CUP_TO_ML
+            changed += 1
+
+    for daily in db.scalars(select(WaterDaily)).all():
+        if 0 < daily.total_ml <= LEGACY_CUP_THRESHOLD:
+            daily.total_ml *= LEGACY_CUP_TO_ML
+            changed += 1
+        if 0 < daily.target_ml <= LEGACY_CUP_THRESHOLD:
+            daily.target_ml *= LEGACY_CUP_TO_ML
+            changed += 1
+        daily.achieved = daily.total_ml >= daily.target_ml
+
+    for log in db.scalars(select(WaterLog)).all():
+        if 0 < log.amount_ml <= 5:
+            log.amount_ml *= LEGACY_CUP_TO_ML
+            changed += 1
+
+    if changed:
+        db.flush()
+    return changed
 
 
 def ensure_user_state(db: Session, user: User, local_today: date) -> WaterState:
