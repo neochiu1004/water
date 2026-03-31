@@ -353,10 +353,39 @@
     .log-item {
       display: flex;
       justify-content: space-between;
+      align-items: center;
+      gap: 12px;
       padding: 12px 14px;
       background: rgba(255,255,255,0.05);
       border: 1px solid var(--line);
       border-radius: 14px;
+    }
+    .log-main {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .log-meta {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    .log-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .ghost-button {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--line);
+      color: var(--ink);
+      box-shadow: none;
+    }
+    .ghost-button.danger {
+      color: #ffd4d4;
+      border-color: rgba(255, 143, 143, 0.35);
+      background: rgba(255, 143, 143, 0.08);
     }
     form {
       display: grid;
@@ -608,6 +637,11 @@
       document.getElementById('battery-3-state')
     ];
 
+    async function refreshDashboard(chatId) {
+      await loadSummary(chatId);
+      await loadSettings(chatId);
+    }
+
     function blockStateText(status, ratio) {
       if (ratio >= 1) return '已充滿';
       if (status === 'current') return '進行中';
@@ -714,8 +748,15 @@
 
       logList.innerHTML = data.recent_logs.length ? data.recent_logs.map(item => `
         <li class="log-item">
-          <span>${new Date(item.logged_at).toLocaleString()}</span>
-          <strong>+${item.amount_ml} ml</strong>
+          <div class="log-main">
+            <span>${new Date(item.logged_at).toLocaleString()}</span>
+            <span class="log-meta">${item.source}</span>
+          </div>
+          <div class="log-actions">
+            <strong>+${item.amount_ml} ml</strong>
+            <button type="button" class="ghost-button" data-action="edit-log" data-log-id="${item.id}" data-amount-ml="${item.amount_ml}">修改</button>
+            <button type="button" class="ghost-button danger" data-action="delete-log" data-log-id="${item.id}">刪除</button>
+          </div>
         </li>
       `).join('') : '<li class="log-item"><span>還沒有紀錄</span><strong>0 ml</strong></li>';
     }
@@ -737,8 +778,7 @@
         alert('記錄失敗，請確認 chat id 是否已啟用');
         return;
       }
-      await loadSummary(chatId);
-      await loadSettings(chatId);
+      await refreshDashboard(chatId);
     });
 
     settingsForm.addEventListener('submit', async (event) => {
@@ -760,15 +800,56 @@
       });
       settingsStatus.textContent = res.ok ? '設定已儲存' : '設定儲存失敗';
       if (res.ok) {
-        await loadSummary(chatId);
-        await loadSettings(chatId);
+        await refreshDashboard(chatId);
+      }
+    });
+
+    logList.addEventListener('click', async (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+
+      const chatId = chatIdInput.value.trim();
+      const logId = button.dataset.logId;
+      if (!chatId || !logId) return;
+
+      if (button.dataset.action === 'edit-log') {
+        const currentAmount = Number(button.dataset.amountMl || '0');
+        const nextValue = window.prompt('修改這筆飲水量（ml）', String(currentAmount));
+        if (nextValue === null) return;
+        const amountMl = Number(nextValue);
+        if (!Number.isFinite(amountMl) || amountMl <= 0) {
+          alert('請輸入大於 0 的 ml 數字');
+          return;
+        }
+        const res = await fetch(`/api/users/${encodeURIComponent(chatId)}/logs/${encodeURIComponent(logId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount_ml: amountMl })
+        });
+        if (!res.ok) {
+          alert('修改失敗');
+          return;
+        }
+        await refreshDashboard(chatId);
+        return;
+      }
+
+      if (button.dataset.action === 'delete-log') {
+        if (!window.confirm('確定要刪除這筆飲水紀錄嗎？')) return;
+        const res = await fetch(`/api/users/${encodeURIComponent(chatId)}/logs/${encodeURIComponent(logId)}`, {
+          method: 'DELETE'
+        });
+        if (!res.ok) {
+          alert('刪除失敗');
+          return;
+        }
+        await refreshDashboard(chatId);
       }
     });
 
     chatIdInput.addEventListener('change', async () => {
       const chatId = chatIdInput.value.trim();
-      await loadSummary(chatId);
-      await loadSettings(chatId);
+      await refreshDashboard(chatId);
     });
 
     loadDefaultConfig();

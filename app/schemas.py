@@ -10,6 +10,10 @@ class ManualDrinkIn(BaseModel):
     amount_ml: int = Field(..., ge=1, le=5000)
 
 
+class LogUpdateIn(BaseModel):
+    amount_ml: int = Field(..., ge=1, le=5000)
+
+
 class UserSettingsIn(BaseModel):
     daily_target: int = Field(..., ge=250, le=10000)
     reminder_start_hour: int = Field(..., ge=0, le=23)

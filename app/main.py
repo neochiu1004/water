@@ -16,11 +16,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import Base, engine, get_db, session_scope
-from .models import User
-from .schemas import AppConfigOut, ManualDrinkIn, SummaryOut, UserSettingsIn, UserSettingsOut
+from .models import User, WaterLog
+from .schemas import AppConfigOut, LogUpdateIn, ManualDrinkIn, SummaryOut, UserSettingsIn, UserSettingsOut
 from .services import (
     dashboard_links_for_chat,
     dashboard_url_for_chat,
+    delete_log_entry,
     delete_message,
     migrate_legacy_cup_units,
     record_drink,
@@ -28,6 +29,7 @@ from .services import (
     send_text,
     summary_for_user,
     telegram_api,
+    update_log_amount,
 )
 
 
@@ -314,6 +316,28 @@ async def manual_drink(payload: ManualDrinkIn, db: Session = Depends(get_db)):
         "target": daily.target_ml,
         "debt_ml": state.debt_ml,
     }
+
+
+@app.patch("/api/users/{chat_id}/logs/{log_id}")
+async def edit_log(chat_id: str, log_id: int, payload: LogUpdateIn, db: Session = Depends(get_db)):
+    user = get_user_or_404(db, chat_id)
+    log = db.scalar(select(WaterLog).where(WaterLog.id == log_id, WaterLog.user_id == user.id))
+    if log is None:
+        raise HTTPException(status_code=404, detail="Log not found")
+    update_log_amount(db, user, log, payload.amount_ml)
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/users/{chat_id}/logs/{log_id}")
+async def remove_log(chat_id: str, log_id: int, db: Session = Depends(get_db)):
+    user = get_user_or_404(db, chat_id)
+    log = db.scalar(select(WaterLog).where(WaterLog.id == log_id, WaterLog.user_id == user.id))
+    if log is None:
+        raise HTTPException(status_code=404, detail="Log not found")
+    delete_log_entry(db, user, log)
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/reminders/run")

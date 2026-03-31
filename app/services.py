@@ -106,6 +106,10 @@ def local_day_utc_bounds(tz_name: str, local_day: date) -> tuple[datetime, datet
     )
 
 
+def local_date_for_log(user: User, log: WaterLog) -> date:
+    return log.logged_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(user.timezone)).date()
+
+
 def build_time_blocks(user: User, local_day: date) -> list[dict]:
     tz = ZoneInfo(user.timezone)
     total_slots = max(1, user.reminder_end.hour - user.reminder_start.hour + 1)
@@ -446,6 +450,50 @@ def record_drink(db: Session, user: User, amount_ml: int, source: str = "telegra
     return state, daily
 
 
+def recalculate_user_day(db: Session, user: User, local_day: date) -> tuple[WaterState, WaterDaily]:
+    state = ensure_user_state(db, user, local_day)
+    daily = ensure_daily_record(db, user, local_day)
+    logs = logs_for_local_day(db, user, local_day)
+    total_ml = sum(log.amount_ml for log in logs)
+
+    daily.total_ml = total_ml
+    daily.target_ml = user.daily_target
+    daily.achieved = daily.total_ml >= daily.target_ml
+
+    state.date_key = local_day
+    state.daily_total = total_ml
+    state.last_drink_at = logs[-1].logged_at if logs else None
+
+    local_now = now_in_timezone(user.timezone)
+    if local_day == local_now.date():
+        blocks = summarize_time_blocks(db, user, local_day, local_now)
+        if daily.achieved:
+            state.debt_ml = 0
+            state.status = "done"
+        else:
+            state.debt_ml = max(0, expected_total_by_now(blocks, local_now) - daily.total_ml)
+            state.status = "drank" if state.debt_ml == 0 else "waiting"
+    else:
+        state.debt_ml = 0
+        state.status = "done" if daily.achieved else "idle"
+
+    db.flush()
+    return state, daily
+
+
+def update_log_amount(db: Session, user: User, log: WaterLog, amount_ml: int) -> tuple[WaterState, WaterDaily]:
+    log.amount_ml = amount_ml
+    db.flush()
+    return recalculate_user_day(db, user, local_date_for_log(user, log))
+
+
+def delete_log_entry(db: Session, user: User, log: WaterLog) -> tuple[WaterState, WaterDaily]:
+    local_day = local_date_for_log(user, log)
+    db.delete(log)
+    db.flush()
+    return recalculate_user_day(db, user, local_day)
+
+
 def summary_for_user(db: Session, user: User) -> dict:
     local_now = now_in_timezone(user.timezone)
     local_today = local_now.date()
@@ -474,6 +522,7 @@ def summary_for_user(db: Session, user: User) -> dict:
         "recent_7_days": recent7,
         "recent_logs": [
             {
+                "id": row.id,
                 "amount_ml": row.amount_ml,
                 "source": row.source,
                 "logged_at": row.logged_at.isoformat(),
