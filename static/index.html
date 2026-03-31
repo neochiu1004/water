@@ -137,148 +137,81 @@
       font-size: 2rem;
       margin-bottom: 4px;
     }
-    .ring {
-      width: 210px;
-      height: 210px;
-      margin: 0 auto;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      background: conic-gradient(var(--accent) 0deg, var(--accent-2) 0deg, #eef6ef 0deg);
-      box-shadow: inset 0 0 24px rgba(255,255,255,0.8), 0 12px 24px rgba(105, 146, 118, 0.12);
+    .progress-card {
+      background: linear-gradient(180deg, #ffffff, #f8fffb);
     }
-    .ring-inner {
-      width: 154px;
-      height: 154px;
-      border-radius: 50%;
-      background: radial-gradient(circle at top, #ffffff, #f3fbf5);
-      display: grid;
-      place-items: center;
-      text-align: center;
-      padding: 12px;
-      border: 1px solid var(--line);
-    }
-    .hero-visuals {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 18px;
-      margin-top: 18px;
-    }
-    .cup-panel {
-      display: grid;
-      grid-template-columns: 140px 1fr;
-      gap: 18px;
-      align-items: center;
-      padding: 18px;
-      border-radius: 22px;
-      background: #f9fffb;
-      border: 1px solid var(--line);
-    }
-    .cup-shell {
-      position: relative;
-      width: 96px;
-      height: 132px;
-      margin: 0 auto;
-      border-radius: 18px 18px 26px 26px;
-      border: 3px solid rgba(146, 192, 161, 0.42);
-      background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(244,252,246,0.92));
-      overflow: hidden;
-      box-shadow: inset 0 0 18px rgba(255,255,255,0.6);
-    }
-    .cup-shell::after {
-      content: "";
-      position: absolute;
-      right: -20px;
-      top: 24px;
-      width: 24px;
-      height: 50px;
-      border: 3px solid rgba(146, 192, 161, 0.35);
-      border-left: 0;
-      border-radius: 0 18px 18px 0;
-    }
-    .cup-fill {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: 0%;
-      background:
-        linear-gradient(180deg, rgba(122,255,199,0.95), rgba(68,210,255,0.9)),
-        linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0));
-      transition: height 0.4s ease;
-    }
-    .cup-fill::before {
-      content: "";
-      position: absolute;
-      top: -10px;
-      left: -10%;
-      width: 120%;
-      height: 20px;
-      background: rgba(255, 255, 255, 0.6);
-      border-radius: 50%;
-      filter: blur(1px);
-    }
-    .cup-caption strong {
-      display: block;
-      font-size: 1.1rem;
-      margin-bottom: 6px;
-    }
-    .battery-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-    }
-    .battery-card {
-      padding: 14px;
-      border-radius: 18px;
-      background: #fcfffd;
-      border: 1px solid var(--line);
-    }
-    .battery-top {
+    .progress-head {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 10px;
+      align-items: flex-end;
+      gap: 12px;
+      margin-bottom: 16px;
     }
-    .battery-title {
-      font-size: 0.98rem;
+    .progress-value {
+      font-size: 2.6rem;
       font-weight: 700;
+      line-height: 1;
     }
-    .battery-pack {
-      position: relative;
-      height: 16px;
+    .progress-rail {
+      height: 18px;
       border-radius: 999px;
-      border: 1px solid #d6e9da;
-      background: #eef8f0;
+      background: #ebf5ed;
       overflow: hidden;
-      margin-bottom: 8px;
+      border: 1px solid var(--line);
     }
-    .battery-pack::after {
-      content: "";
-      position: absolute;
-      right: -5px;
-      top: 4px;
-      width: 4px;
-      height: 8px;
-      border-radius: 0 4px 4px 0;
-      background: #c7decf;
-    }
-    .battery-fill {
+    .progress-fill {
       height: 100%;
       width: 0%;
       border-radius: inherit;
       background: linear-gradient(90deg, var(--accent), var(--accent-2));
       transition: width 0.4s ease;
     }
-    .battery-fill.is-low { background: linear-gradient(90deg, #ff9f7a, #ffd166); }
-    .battery-fill.is-full { background: linear-gradient(90deg, #7affc7, #9bffdf); }
-    .battery-meta {
+    .progress-meta {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .time-blocks {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .time-block {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #fbfffc;
+    }
+    .time-block-top {
       display: flex;
       justify-content: space-between;
       gap: 10px;
-      font-size: 0.85rem;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .time-block-title {
+      font-weight: 700;
+    }
+    .time-block-range {
       color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .time-block-rail {
+      height: 10px;
+      border-radius: 999px;
+      background: #edf6ef;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .time-block-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #7dcf9c, #9fe2c7);
+    }
+    .time-block-meta {
+      color: var(--muted);
+      font-size: 0.88rem;
     }
     .grid {
       display: grid;
@@ -429,10 +362,8 @@
     }
     @media (max-width: 800px) {
       .topbar, .hero-actions { flex-direction: column; align-items: flex-start; }
-      .hero, .grid, .metrics, form, .summary-strip, .battery-grid, .cup-panel { grid-template-columns: 1fr; }
-      .ring { width: 170px; height: 170px; }
-      .ring-inner { width: 126px; height: 126px; }
-      .cup-shell { width: 84px; height: 116px; }
+      .hero, .grid, .metrics, form, .summary-strip { grid-template-columns: 1fr; }
+      .progress-head { flex-direction: column; align-items: flex-start; }
     }
   </style>
 </head>
@@ -461,57 +392,21 @@
         </form>
         <p class="hint">如果頁面沒自動帶出群組，先到 Telegram 對 bot 傳送 <code>/start</code>。</p>
         <div class="summary-strip">
-          <div class="summary-chip"><b id="block-1-title">晨間時段</b><span class="hint" id="block-1-body">尚未載入</span></div>
-          <div class="summary-chip"><b id="block-2-title">午間時段</b><span class="hint" id="block-2-body">尚未載入</span></div>
-          <div class="summary-chip"><b id="block-3-title">晚間時段</b><span class="hint" id="block-3-body">尚未載入</span></div>
-        </div>
-        <div class="hero-visuals">
-          <div class="cup-panel">
-            <div class="cup-shell">
-              <div class="cup-fill" id="cup-fill"></div>
-            </div>
-            <div class="cup-caption">
-              <strong>今日水杯</strong>
-              <div class="hint" id="cup-caption">目前還在起步，先補第一段水量。</div>
-            </div>
-          </div>
-          <div class="battery-grid">
-            <div class="battery-card">
-              <div class="battery-top">
-                <span class="battery-title">晨間電量</span>
-                <span class="hint" id="battery-1-percent">0%</span>
-              </div>
-              <div class="battery-pack"><div class="battery-fill" id="battery-1-fill"></div></div>
-              <div class="battery-meta"><span id="battery-1-meta">0 / 0 ml</span><span id="battery-1-state">待開始</span></div>
-            </div>
-            <div class="battery-card">
-              <div class="battery-top">
-                <span class="battery-title">午間電量</span>
-                <span class="hint" id="battery-2-percent">0%</span>
-              </div>
-              <div class="battery-pack"><div class="battery-fill" id="battery-2-fill"></div></div>
-              <div class="battery-meta"><span id="battery-2-meta">0 / 0 ml</span><span id="battery-2-state">待開始</span></div>
-            </div>
-            <div class="battery-card">
-              <div class="battery-top">
-                <span class="battery-title">晚間電量</span>
-                <span class="hint" id="battery-3-percent">0%</span>
-              </div>
-              <div class="battery-pack"><div class="battery-fill" id="battery-3-fill"></div></div>
-              <div class="battery-meta"><span id="battery-3-meta">0 / 0 ml</span><span id="battery-3-state">待開始</span></div>
-            </div>
-          </div>
+          <div class="summary-chip"><b>今日目標</b><span class="hint" id="today-target-chip">尚未載入</span></div>
+          <div class="summary-chip"><b>本週達標</b><span class="hint" id="week-ok-chip">尚未載入</span></div>
+          <div class="summary-chip"><b>目前狀態</b><span class="hint" id="status-chip">尚未載入</span></div>
         </div>
       </div>
-      <div class="card" style="background: linear-gradient(180deg, rgba(10,37,56,0.92), rgba(7,17,27,0.95));">
-        <div class="ring" id="ring">
-          <div class="ring-inner">
-            <div>
-              <div id="today-progress" style="font-size:1.8rem;font-weight:700;">0 / 3000 ml</div>
-              <div class="hint">今日進度</div>
-            </div>
+      <div class="card progress-card">
+        <div class="progress-head">
+          <div>
+            <div class="hint">今日進度</div>
+            <div id="today-progress" class="progress-value">0 / 3000 ml</div>
           </div>
+          <div class="hint" id="status-message">尚未載入提醒節奏</div>
         </div>
+        <div class="progress-rail"><div class="progress-fill" id="progress-fill"></div></div>
+        <div class="progress-meta" id="progress-caption">目前還在起步，先補第一段水量。</div>
         <div class="metrics">
           <div class="metric">
             <strong id="debt">0</strong>
@@ -526,7 +421,7 @@
             <span class="hint">今日狀態</span>
           </div>
         </div>
-        <p class="hint" id="status-message" style="margin-top:14px;">尚未載入提醒節奏</p>
+        <div class="time-blocks" id="time-blocks"></div>
       </div>
     </section>
 
@@ -571,41 +466,19 @@
     const endHourInput = document.getElementById('end-hour');
     const timezoneInput = document.getElementById('timezone');
     const settingsStatus = document.getElementById('settings-status');
-      const ring = document.getElementById('ring');
+    const progressFill = document.getElementById('progress-fill');
     const todayProgress = document.getElementById('today-progress');
     const debt = document.getElementById('debt');
     const weekOk = document.getElementById('week-ok');
     const statusText = document.getElementById('status-text');
     const statusMessage = document.getElementById('status-message');
-    const cupFill = document.getElementById('cup-fill');
-    const cupCaption = document.getElementById('cup-caption');
+    const progressCaption = document.getElementById('progress-caption');
     const bars = document.getElementById('bars');
     const logList = document.getElementById('log-list');
-    const blockBodies = [
-      document.getElementById('block-1-body'),
-      document.getElementById('block-2-body'),
-      document.getElementById('block-3-body')
-    ];
-    const batteryFills = [
-      document.getElementById('battery-1-fill'),
-      document.getElementById('battery-2-fill'),
-      document.getElementById('battery-3-fill')
-    ];
-    const batteryPercents = [
-      document.getElementById('battery-1-percent'),
-      document.getElementById('battery-2-percent'),
-      document.getElementById('battery-3-percent')
-    ];
-    const batteryMetas = [
-      document.getElementById('battery-1-meta'),
-      document.getElementById('battery-2-meta'),
-      document.getElementById('battery-3-meta')
-    ];
-    const batteryStates = [
-      document.getElementById('battery-1-state'),
-      document.getElementById('battery-2-state'),
-      document.getElementById('battery-3-state')
-    ];
+    const timeBlocks = document.getElementById('time-blocks');
+    const todayTargetChip = document.getElementById('today-target-chip');
+    const weekOkChip = document.getElementById('week-ok-chip');
+    const statusChip = document.getElementById('status-chip');
 
     async function refreshDashboard(chatId) {
       await loadSummary(chatId);
@@ -663,8 +536,7 @@
 
     function renderSummary(data) {
       const ratio = Math.min(1, data.target ? data.daily_total / data.target : 0);
-      const degrees = Math.round(ratio * 360);
-      ring.style.background = `conic-gradient(var(--accent) ${degrees}deg, var(--accent-2) ${degrees}deg, #dce8ef 0deg)`;
+      progressFill.style.width = `${Math.round(ratio * 100)}%`;
       todayProgress.textContent = `${data.daily_total} / ${data.target} ml`;
       debt.textContent = data.debt_ml;
       weekOk.textContent = `${data.week_ok_days}/7`;
@@ -672,31 +544,26 @@
       statusText.textContent = achieved ? '已達標' : '待補水';
       statusText.className = achieved ? 'status-ok' : 'status-bad';
       statusMessage.textContent = data.status_message;
-      cupFill.style.height = `${Math.round(ratio * 100)}%`;
-      cupCaption.textContent = cupMessage(ratio, achieved);
+      progressCaption.textContent = cupMessage(ratio, achieved);
+      todayTargetChip.textContent = `${data.target} ml`;
+      weekOkChip.textContent = `${data.week_ok_days} / 7 天`;
+      statusChip.textContent = achieved ? '今天已達標' : `${data.debt_ml} ml 待補`;
 
-      batteryFills.forEach((fill, index) => {
-        fill.style.width = '0%';
-        fill.className = 'battery-fill';
-        batteryPercents[index].textContent = '0%';
-        batteryMetas[index].textContent = '0 / 0 ml';
-        batteryStates[index].textContent = '待開始';
-      });
-
-      (data.time_blocks || []).slice(0, 3).forEach((item, index) => {
-        blockBodies[index].textContent = `${item.label}｜${item.amount_ml}/${item.target_ml} ml`;
+      timeBlocks.innerHTML = (data.time_blocks || []).slice(0, 3).map((item) => {
         const blockRatio = Math.min(1, item.target_ml ? item.amount_ml / item.target_ml : 0);
-        batteryFills[index].style.width = `${Math.round(blockRatio * 100)}%`;
-        batteryFills[index].className = 'battery-fill';
-        if (blockRatio >= 1) {
-          batteryFills[index].classList.add('is-full');
-        } else if (blockRatio < 0.35 && item.status !== 'upcoming') {
-          batteryFills[index].classList.add('is-low');
-        }
-        batteryPercents[index].textContent = `${Math.round(blockRatio * 100)}%`;
-        batteryMetas[index].textContent = `${item.amount_ml} / ${item.target_ml} ml`;
-        batteryStates[index].textContent = blockStateText(item.status, blockRatio);
-      });
+        return `
+          <div class="time-block">
+            <div class="time-block-top">
+              <span class="time-block-title">${item.name}</span>
+              <span class="time-block-range">${item.label}</span>
+            </div>
+            <div class="time-block-rail">
+              <div class="time-block-fill" style="width:${Math.round(blockRatio * 100)}%"></div>
+            </div>
+            <div class="time-block-meta">${item.amount_ml} / ${item.target_ml} ml，${blockStateText(item.status, blockRatio)}</div>
+          </div>
+        `;
+      }).join('');
 
       bars.innerHTML = data.recent_7_days.map(item => {
         const h = Math.max(8, Math.round((item.amount_ml / Math.max(item.target_ml, 1)) * 180));
