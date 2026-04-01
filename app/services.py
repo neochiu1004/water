@@ -8,11 +8,17 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import httpx
-from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import User, WaterDaily, WaterLog, WaterState
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:  # pragma: no cover - optional dependency on low-resource hosts
+    Image = None
+    ImageDraw = None
+    ImageFont = None
 
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -23,6 +29,7 @@ LEGACY_CUP_TO_ML = 200
 LEGACY_CUP_THRESHOLD = 40
 SUMMARY_IMAGE_WIDTH = 1080
 SUMMARY_IMAGE_HEIGHT = 900
+DEFAULT_QUICK_ADD_AMOUNTS = [250, 500, 750]
 
 
 def now_in_timezone(tz_name: str) -> datetime:
@@ -30,7 +37,13 @@ def now_in_timezone(tz_name: str) -> datetime:
 
 
 def load_font(size: int, bold: bool = False):
+    if ImageFont is None:
+        raise RuntimeError("Pillow is not installed")
     candidates = [
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -77,6 +90,29 @@ def migrate_legacy_cup_units(db: Session) -> int:
     if changed:
         db.flush()
     return changed
+
+
+def parse_quick_add_amounts(raw: Optional[str]) -> list[int]:
+    values: list[int] = []
+    for chunk in (raw or "").split(","):
+        item = chunk.strip()
+        if not item:
+            continue
+        try:
+            amount = int(item)
+        except ValueError:
+            continue
+        if 1 <= amount <= 5000 and amount not in values:
+            values.append(amount)
+    return values[:6] or DEFAULT_QUICK_ADD_AMOUNTS.copy()
+
+
+def serialize_quick_add_amounts(values: list[int]) -> str:
+    cleaned: list[int] = []
+    for amount in values:
+        if 1 <= amount <= 5000 and amount not in cleaned:
+            cleaned.append(amount)
+    return ",".join(str(amount) for amount in (cleaned[:6] or DEFAULT_QUICK_ADD_AMOUNTS))
 
 
 def ensure_user_state(db: Session, user: User, local_today: date) -> WaterState:
@@ -351,17 +387,17 @@ def build_reminder_text(db: Session, user: User, state: WaterState, daily: Water
 
 def reminder_keyboard(user: User) -> dict:
     step_ml = reminder_step_ml(user)
+    custom_amounts = parse_quick_add_amounts(user.quick_add_amounts)
     rows = [
         [
             {"text": f"{step_ml} ml", "callback_data": f"WATER_{step_ml}"},
             {"text": f"{step_ml * 2} ml", "callback_data": f"WATER_{step_ml * 2}"},
             {"text": f"{step_ml * 3} ml", "callback_data": f"WATER_{step_ml * 3}"},
         ],
-        [
-            {"text": f"{500} ml", "callback_data": "WATER_500"},
-            {"text": f"{750} ml", "callback_data": "WATER_750"},
-        ],
     ]
+    custom_row = [{"text": f"{amount} ml", "callback_data": f"WATER_{amount}"} for amount in custom_amounts[:3]]
+    if custom_row:
+        rows.append(custom_row)
     if DASHBOARD_URL:
         rows.append([{"text": "查看喝水儀表板", "url": DASHBOARD_URL}])
     return {"inline_keyboard": rows}
@@ -390,6 +426,8 @@ def dashboard_url_for_chat(chat_id: str) -> str:
 
 
 def render_summary_image(user: User, summary: dict) -> bytes:
+    if Image is None or ImageDraw is None or ImageFont is None:
+        raise RuntimeError("Summary image rendering requires Pillow")
     image = Image.new("RGB", (SUMMARY_IMAGE_WIDTH, SUMMARY_IMAGE_HEIGHT), "#F6FBF6")
     draw = ImageDraw.Draw(image)
 
@@ -399,8 +437,8 @@ def render_summary_image(user: User, summary: dict) -> bytes:
     small_font = load_font(22)
 
     draw.rounded_rectangle((40, 36, 1040, 864), radius=34, fill="#FFFFFF", outline="#D8EBDF")
-    draw.text((78, 78), "Hydration Snapshot", font=title_font, fill="#1C3729")
-    draw.text((82, 154), f"Today {summary['daily_total']} / {summary['target']} ml", font=heading_font, fill="#2D6043")
+    draw.text((78, 78), "喝水紀錄快照", font=title_font, fill="#1C3729")
+    draw.text((82, 154), f"今日 {summary['daily_total']} / {summary['target']} ml", font=heading_font, fill="#2D6043")
 
     progress_left = 82
     progress_top = 220
@@ -410,17 +448,16 @@ def render_summary_image(user: User, summary: dict) -> bytes:
     ratio = 0 if not summary["target"] else min(1, summary["daily_total"] / summary["target"])
     fill_right = progress_left + int((progress_right - progress_left) * ratio)
     draw.rounded_rectangle((progress_left, progress_top, max(progress_left + 24, fill_right), progress_bottom), radius=20, fill="#69C792")
-    draw.text((82, 284), f"Remaining {summary['debt_ml']} ml", font=body_font, fill="#6B8B79")
-    draw.text((640, 284), f"Week {summary['week_ok_days']} / 7", font=body_font, fill="#6B8B79")
+    draw.text((82, 284), f"待補水量 {summary['debt_ml']} ml", font=body_font, fill="#6B8B79")
+    draw.text((640, 284), f"本週達標 {summary['week_ok_days']} / 7", font=body_font, fill="#6B8B79")
 
     blocks = summary.get("time_blocks", [])[:3]
     block_top = 360
-    block_labels = {"晨間": "Morning", "午間": "Midday", "晚間": "Evening"}
     for index, block in enumerate(blocks):
         card_left = 82 + index * 302
         card_right = card_left + 270
         draw.rounded_rectangle((card_left, block_top, card_right, block_top + 180), radius=26, fill="#F9FFFB", outline="#D8EBDF")
-        draw.text((card_left + 22, block_top + 22), block_labels.get(block["name"], block["name"]), font=heading_font, fill="#214A33")
+        draw.text((card_left + 22, block_top + 22), block["name"], font=heading_font, fill="#214A33")
         draw.text((card_left + 22, block_top + 64), block["label"], font=small_font, fill="#6B8B79")
         draw.rounded_rectangle((card_left + 22, block_top + 104, card_right - 22, block_top + 124), radius=10, fill="#EAF4ED")
         block_ratio = 0 if not block["target_ml"] else min(1, block["amount_ml"] / block["target_ml"])
@@ -429,18 +466,18 @@ def render_summary_image(user: User, summary: dict) -> bytes:
         draw.text((card_left + 22, block_top + 138), f"{block['amount_ml']} / {block['target_ml']} ml", font=small_font, fill="#355F47")
 
     log_top = 596
-    draw.text((82, log_top), "Recent Logs", font=heading_font, fill="#1C3729")
+    draw.text((82, log_top), "最近紀錄", font=heading_font, fill="#1C3729")
     recent_logs = summary.get("recent_logs", [])[:5]
     row_top = log_top + 56
     if not recent_logs:
-        draw.text((82, row_top), "No records yet", font=body_font, fill="#6B8B79")
+        draw.text((82, row_top), "目前還沒有紀錄", font=body_font, fill="#6B8B79")
     for index, item in enumerate(recent_logs):
         y = row_top + index * 46
-        timestamp = item["logged_at"].replace("T", " ")[:16]
+        timestamp = item.get("logged_at_local", item["logged_at"]).replace("T", " ")[:16]
         draw.text((82, y), timestamp, font=small_font, fill="#456A55")
         draw.text((760, y), f"+{item['amount_ml']} ml", font=small_font, fill="#214A33")
 
-    footer = now_in_timezone(user.timezone).strftime("Updated %Y-%m-%d %H:%M")
+    footer = now_in_timezone(user.timezone).strftime("更新時間 %Y-%m-%d %H:%M")
     draw.text((82, 814), footer, font=small_font, fill="#7A9A86")
 
     output = io.BytesIO()
@@ -448,13 +485,10 @@ def render_summary_image(user: User, summary: dict) -> bytes:
     return output.getvalue()
 
 
-def persistent_menu_keyboard(chat_id: str) -> dict:
-    rows = [
-        [{"text": "+250"}, {"text": "+500"}, {"text": "+750"}],
-        [{"text": "250ml"}, {"text": "500ml"}, {"text": "/status"}],
-    ]
-
-    rows.append([{"text": "/dashboard"}, {"text": "/help"}])
+def persistent_menu_keyboard(user: Optional[User] = None) -> dict:
+    quick_amounts = parse_quick_add_amounts(user.quick_add_amounts if user else None)
+    rows = [[{"text": f"+{amount}"} for amount in quick_amounts[:3]]]
+    rows.append([{"text": "/status"}, {"text": "/dashboard"}, {"text": "/help"}])
 
     return {
         "keyboard": rows,
@@ -512,10 +546,16 @@ async def send_reminder(user: User, text: str) -> Optional[str]:
 
 
 async def send_text(chat_id: str, text: str) -> None:
+    user: Optional[User] = None
+    if chat_id:
+        from .db import session_scope
+
+        with session_scope() as db:
+            user = db.scalar(select(User).where(User.chat_id == chat_id))
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "reply_markup": persistent_menu_keyboard(chat_id),
+        "reply_markup": persistent_menu_keyboard(user),
     }
     await telegram_api("sendMessage", payload)
 
@@ -604,6 +644,7 @@ def summary_for_user(db: Session, user: User) -> dict:
     ).all()
     return {
         "today": local_today.isoformat(),
+        "timezone": user.timezone,
         "daily_total": daily.total_ml,
         "target": daily.target_ml,
         "debt_ml": state.debt_ml,
@@ -617,6 +658,7 @@ def summary_for_user(db: Session, user: User) -> dict:
                 "amount_ml": row.amount_ml,
                 "source": row.source,
                 "logged_at": row.logged_at.isoformat(),
+                "logged_at_local": row.logged_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(user.timezone)).isoformat(),
             }
             for row in recent_logs
         ],

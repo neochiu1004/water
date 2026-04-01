@@ -12,7 +12,8 @@ from apscheduler.triggers.cron import CronTrigger
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import inspect, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
 from .db import Base, engine, get_db, session_scope
@@ -24,6 +25,7 @@ from .services import (
     delete_log_entry,
     delete_message,
     migrate_legacy_cup_units,
+    parse_quick_add_amounts,
     record_drink,
     render_summary_image,
     run_reminder_cycle,
@@ -31,6 +33,7 @@ from .services import (
     send_text,
     summary_for_user,
     telegram_api,
+    serialize_quick_add_amounts,
     update_log_amount,
 )
 
@@ -38,7 +41,7 @@ from .services import (
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="Water Reminder")
+app = FastAPI(title="喝水提醒")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 logger = logging.getLogger("water-reminder")
 
@@ -49,9 +52,18 @@ DEFAULT_CHAT_ID = os.getenv("DEFAULT_CHAT_ID")
 DASHBOARD_URL = os.getenv("DASHBOARD_URL")
 
 
+def ensure_schema_updates() -> None:
+    inspector = inspect(engine)
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    if "quick_add_amounts" not in user_columns:
+        with engine.begin() as conn:
+            conn.execute(sql_text("ALTER TABLE users ADD COLUMN quick_add_amounts VARCHAR(128) DEFAULT '250,500,750'"))
+
+
 @app.on_event("startup")
 async def startup_event():
     Base.metadata.create_all(bind=engine)
+    ensure_schema_updates()
     with session_scope() as db:
         migrated = migrate_legacy_cup_units(db)
         if migrated:
@@ -172,7 +184,7 @@ async def process_telegram_update(update: dict, db: Session):
                 ),
             )
             try:
-                await send_summary_photo(chat_id, render_summary_image(user, summary), "Hydration snapshot")
+                await send_summary_photo(chat_id, render_summary_image(user, summary), "喝水紀錄快照")
             except Exception as exc:
                 logger.warning("Failed to send hydration snapshot: %s", exc)
         elif text.startswith("/dashboard") or text == "喝水儀表板":
@@ -202,7 +214,7 @@ async def process_telegram_update(update: dict, db: Session):
                 ),
             )
             try:
-                await send_summary_photo(chat_id, render_summary_image(user, summary), "Hydration snapshot")
+                await send_summary_photo(chat_id, render_summary_image(user, summary), "喝水紀錄快照")
             except Exception as exc:
                 logger.warning("Failed to send hydration snapshot: %s", exc)
         elif (
@@ -241,7 +253,7 @@ async def process_telegram_update(update: dict, db: Session):
             ),
         )
         try:
-            await send_summary_photo(chat_id, render_summary_image(user, summary), "Hydration snapshot")
+            await send_summary_photo(chat_id, render_summary_image(user, summary), "喝水紀錄快照")
         except Exception as exc:
             logger.warning("Failed to send hydration snapshot: %s", exc)
         return {"ok": True}
@@ -305,6 +317,7 @@ async def get_settings(chat_id: str, db: Session = Depends(get_db)):
         "reminder_start_hour": user.reminder_start.hour,
         "reminder_end_hour": user.reminder_end.hour,
         "timezone": user.timezone,
+        "quick_add_amounts": parse_quick_add_amounts(user.quick_add_amounts),
     }
 
 
@@ -315,6 +328,7 @@ async def update_settings(chat_id: str, payload: UserSettingsIn, db: Session = D
     user.reminder_start = time(payload.reminder_start_hour, 0)
     user.reminder_end = time(payload.reminder_end_hour, 0)
     user.timezone = payload.timezone
+    user.quick_add_amounts = serialize_quick_add_amounts(payload.quick_add_amounts)
     db.commit()
     return {"ok": True}
 

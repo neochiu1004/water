@@ -19,6 +19,7 @@ class UserSettingsIn(BaseModel):
     reminder_start_hour: int = Field(..., ge=0, le=23)
     reminder_end_hour: int = Field(..., ge=0, le=23)
     timezone: str = Field(default="Asia/Taipei")
+    quick_add_amounts: list[int] = Field(default_factory=lambda: [250, 500, 750], min_length=1, max_length=6)
 
 
 class UserSettingsOut(UserSettingsIn):
@@ -32,6 +33,7 @@ class AppConfigOut(BaseModel):
 
 class SummaryOut(BaseModel):
     today: str
+    timezone: str
     daily_total: int
     target: int
     debt_ml: int

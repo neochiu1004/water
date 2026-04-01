@@ -18,6 +18,7 @@ class User(Base):
     daily_target: Mapped[int] = mapped_column(Integer, default=3000)
     reminder_start: Mapped[time] = mapped_column(Time, default=time(6, 0))
     reminder_end: Mapped[time] = mapped_column(Time, default=time(22, 0))
+    quick_add_amounts: Mapped[str] = mapped_column(String(128), default="250,500,750")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

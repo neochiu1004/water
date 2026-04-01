@@ -308,6 +308,18 @@
     .settings-form {
       grid-template-columns: repeat(4, 1fr) auto;
     }
+    .quick-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .quick-button {
+      min-width: 96px;
+    }
+    .field-span {
+      grid-column: 1 / -2;
+    }
     select {
       border: 0;
       border-radius: 14px;
@@ -386,10 +398,11 @@
           <span class="pill">目前群組：<strong id="active-chat-id">尚未載入</strong></span>
         </div>
         <form id="query-form">
-          <input id="chat-id" placeholder="Telegram chat id" />
-          <input id="amount-ml" type="number" min="1" max="5000" value="300" />
+          <input id="chat-id" placeholder="輸入 Telegram chat id" />
+          <input id="amount-ml" type="number" min="1" max="5000" value="300" placeholder="輸入本次 ml" />
           <button type="submit">記錄喝水</button>
         </form>
+        <div class="quick-actions" id="quick-actions"></div>
         <p class="hint">如果頁面沒自動帶出群組，先到 Telegram 對 bot 傳送 <code>/start</code>。</p>
         <div class="summary-strip">
           <div class="summary-chip"><b>今日目標</b><span class="hint" id="today-target-chip">尚未載入</span></div>
@@ -448,8 +461,10 @@
             <option value="Asia/Tokyo">Asia/Tokyo</option>
             <option value="UTC">UTC</option>
           </select>
+          <input id="quick-add-amounts" class="field-span" value="250, 500, 750" placeholder="快速按鍵 ml，例如 150, 300, 600" />
           <button type="submit">儲存設定</button>
         </form>
+        <p class="hint">快速按鍵可輸入 1 到 6 個數字，使用半形逗號分隔。</p>
         <p class="hint" id="settings-status">尚未讀取設定</p>
       </div>
     </section>
@@ -465,6 +480,8 @@
     const startHourInput = document.getElementById('start-hour');
     const endHourInput = document.getElementById('end-hour');
     const timezoneInput = document.getElementById('timezone');
+    const quickAddAmountsInput = document.getElementById('quick-add-amounts');
+    const quickActions = document.getElementById('quick-actions');
     const settingsStatus = document.getElementById('settings-status');
     const progressFill = document.getElementById('progress-fill');
     const todayProgress = document.getElementById('today-progress');
@@ -479,6 +496,51 @@
     const todayTargetChip = document.getElementById('today-target-chip');
     const weekOkChip = document.getElementById('week-ok-chip');
     const statusChip = document.getElementById('status-chip');
+
+    let currentQuickAddAmounts = [250, 500, 750];
+    let currentDisplayTimezone = 'Asia/Taipei';
+
+    function sourceLabel(source) {
+      const labels = {
+        web: '網頁手動記錄',
+        telegram: 'Telegram 訊息',
+        'telegram-command': 'Telegram 指令',
+        'telegram-button': 'Telegram 快速按鈕'
+      };
+      return labels[source] || source || '未知來源';
+    }
+
+    function parseQuickAddAmountsInput(raw) {
+      const values = [];
+      for (const part of raw.split(',')) {
+        const amount = Number(part.trim());
+        if (!Number.isFinite(amount) || amount <= 0 || amount > 5000) continue;
+        if (!values.includes(amount)) values.push(amount);
+      }
+      return values.slice(0, 6);
+    }
+
+    function formatLogTime(item) {
+      const value = item.logged_at_local || item.logged_at;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value || '時間未知';
+      return new Intl.DateTimeFormat('zh-TW', {
+        timeZone: currentDisplayTimezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).format(date);
+    }
+
+    function renderQuickActions() {
+      quickActions.innerHTML = currentQuickAddAmounts.map((amount) => `
+        <button type="button" class="quick-button" data-action="quick-add" data-amount-ml="${amount}">+${amount} ml</button>
+      `).join('');
+    }
 
     async function refreshDashboard(chatId) {
       await loadSummary(chatId);
@@ -520,6 +582,9 @@
       startHourInput.value = data.reminder_start_hour;
       endHourInput.value = data.reminder_end_hour;
       timezoneInput.value = data.timezone;
+      currentQuickAddAmounts = data.quick_add_amounts?.length ? data.quick_add_amounts : [250, 500, 750];
+      quickAddAmountsInput.value = currentQuickAddAmounts.join(', ');
+      renderQuickActions();
       settingsStatus.textContent = '設定已載入';
     }
 
@@ -535,6 +600,7 @@
     }
 
     function renderSummary(data) {
+      currentDisplayTimezone = data.timezone || currentDisplayTimezone;
       const ratio = Math.min(1, data.target ? data.daily_total / data.target : 0);
       progressFill.style.width = `${Math.round(ratio * 100)}%`;
       todayProgress.textContent = `${data.daily_total} / ${data.target} ml`;
@@ -582,8 +648,8 @@
       logList.innerHTML = data.recent_logs.length ? data.recent_logs.map(item => `
         <li class="log-item">
           <div class="log-main">
-            <span>${new Date(item.logged_at).toLocaleString()}</span>
-            <span class="log-meta">${item.source}</span>
+            <span>${formatLogTime(item)}</span>
+            <span class="log-meta">${sourceLabel(item.source)}</span>
           </div>
           <div class="log-actions">
             <strong>+${item.amount_ml} ml</strong>
@@ -614,11 +680,39 @@
       await refreshDashboard(chatId);
     });
 
+    quickActions.addEventListener('click', async (event) => {
+      const button = event.target.closest('button[data-action="quick-add"]');
+      if (!button) return;
+
+      const chatId = chatIdInput.value.trim();
+      const amountMl = Number(button.dataset.amountMl);
+      if (!chatId) {
+        alert('請先輸入 Telegram chat id');
+        return;
+      }
+      const res = await fetch('/api/drink', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, amount_ml: amountMl })
+      });
+      if (!res.ok) {
+        alert('記錄失敗，請確認 chat id 是否已啟用');
+        return;
+      }
+      amountInput.value = amountMl;
+      await refreshDashboard(chatId);
+    });
+
     settingsForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       const chatId = chatIdInput.value.trim();
       if (!chatId) {
         alert('請先輸入或載入 chat id');
+        return;
+      }
+      const quickAddAmounts = parseQuickAddAmountsInput(quickAddAmountsInput.value);
+      if (!quickAddAmounts.length) {
+        settingsStatus.textContent = '請至少設定一個快速按鍵 ml 數字';
         return;
       }
       const res = await fetch(`/api/users/${encodeURIComponent(chatId)}/settings`, {
@@ -628,10 +722,11 @@
           daily_target: Number(dailyTargetInput.value),
           reminder_start_hour: Number(startHourInput.value),
           reminder_end_hour: Number(endHourInput.value),
-          timezone: timezoneInput.value
+          timezone: timezoneInput.value,
+          quick_add_amounts: quickAddAmounts
         })
       });
-      settingsStatus.textContent = res.ok ? '設定已儲存' : '設定儲存失敗';
+      settingsStatus.textContent = res.ok ? '設定已儲存' : '設定儲存失敗，請確認快速按鍵格式';
       if (res.ok) {
         await refreshDashboard(chatId);
       }
@@ -685,6 +780,7 @@
       await refreshDashboard(chatId);
     });
 
+    renderQuickActions();
     loadDefaultConfig();
   </script>
 </body>
