@@ -372,6 +372,18 @@
       font-size: 1.15rem;
       margin-bottom: 4px;
     }
+    .fixed-plan-panel {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: #f7fffb;
+      border: 1px solid var(--line);
+      color: var(--ink);
+    }
+    .fixed-plan-panel b {
+      display: block;
+      margin-bottom: 6px;
+    }
     @media (max-width: 800px) {
       .topbar, .hero-actions { flex-direction: column; align-items: flex-start; }
       .hero, .grid, .metrics, form, .summary-strip { grid-template-columns: 1fr; }
@@ -420,6 +432,10 @@
         </div>
         <div class="progress-rail"><div class="progress-fill" id="progress-fill"></div></div>
         <div class="progress-meta" id="progress-caption">目前還在起步，先補第一段水量。</div>
+        <div class="fixed-plan-panel">
+          <b>固定喝水計畫</b>
+          <div class="hint" id="fixed-plan-caption">尚未載入固定計畫</div>
+        </div>
         <div class="metrics">
           <div class="metric">
             <strong id="debt">0</strong>
@@ -490,6 +506,7 @@
     const statusText = document.getElementById('status-text');
     const statusMessage = document.getElementById('status-message');
     const progressCaption = document.getElementById('progress-caption');
+    const fixedPlanCaption = document.getElementById('fixed-plan-caption');
     const bars = document.getElementById('bars');
     const logList = document.getElementById('log-list');
     const timeBlocks = document.getElementById('time-blocks');
@@ -508,6 +525,12 @@
         'telegram-button': 'Telegram 快速按鈕'
       };
       return labels[source] || source || '未知來源';
+    }
+
+    function signedMl(amount) {
+      const value = Number(amount || 0);
+      const sign = value >= 0 ? '+' : '-';
+      return `${sign}${Math.abs(value)} ml`;
     }
 
     function parseQuickAddAmountsInput(raw) {
@@ -611,6 +634,7 @@
       statusText.className = achieved ? 'status-ok' : 'status-bad';
       statusMessage.textContent = data.status_message;
       progressCaption.textContent = cupMessage(ratio, achieved);
+      fixedPlanCaption.textContent = data.fixed_plan?.summary_text || '尚未載入固定計畫';
       todayTargetChip.textContent = `${data.target} ml`;
       weekOkChip.textContent = `${data.week_ok_days} / 7 天`;
       statusChip.textContent = achieved ? '今天已達標' : `${data.debt_ml} ml 待補`;
@@ -652,7 +676,7 @@
             <span class="log-meta">${sourceLabel(item.source)}</span>
           </div>
           <div class="log-actions">
-            <strong>+${item.amount_ml} ml</strong>
+            <strong>${signedMl(item.amount_ml)}</strong>
             <button type="button" class="ghost-button" data-action="edit-log" data-log-id="${item.id}" data-amount-ml="${item.amount_ml}">修改</button>
             <button type="button" class="ghost-button danger" data-action="delete-log" data-log-id="${item.id}">刪除</button>
           </div>

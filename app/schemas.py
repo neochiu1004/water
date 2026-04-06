@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class ManualDrinkIn(BaseModel):
     chat_id: str = Field(..., description="Telegram chat id")
-    amount_ml: int = Field(..., ge=1, le=5000)
+    amount_ml: int = Field(..., ge=-5000, le=5000)
 
 
 class LogUpdateIn(BaseModel):
@@ -42,3 +42,8 @@ class SummaryOut(BaseModel):
     time_blocks: list[dict]
     recent_7_days: list[dict]
     recent_logs: list[dict]
+    fixed_plan: dict
+    completed_checkpoint: Optional[dict] = None
+    next_checkpoint: Optional[dict] = None
+    is_completed: bool
+    remaining_ml: int

@@ -108,9 +108,10 @@ def help_text(chat_id: Optional[str] = None) -> str:
         "可用指令：",
         "/status 查看今天進度",
         "/drink 300 手動記錄 300 ml",
+        "/drink -300 扣減今天 300 ml",
         "/water 300 手動記錄 300 ml",
-        "喝水 300 也可以直接記錄",
-        "+300、300ml、300cc 也可以直接記錄",
+        "喝水 300、喝水 -300 也可以直接記錄",
+        "+300、-300、300ml、300cc 也可以直接記錄",
         "/help 查看這份說明",
     ]
     if chat_id:
@@ -126,15 +127,19 @@ def parse_manual_drink(text: str) -> Optional[int]:
         return None
 
     shorthand = normalized
+    sign = 1
     if shorthand.startswith("+"):
         shorthand = shorthand[1:].strip()
+    elif shorthand.startswith("-"):
+        shorthand = shorthand[1:].strip()
+        sign = -1
     for suffix in ("ml", "ML", "cc", "CC", "毫升", "杯"):
         if shorthand.endswith(suffix):
             shorthand = shorthand[: -len(suffix)].strip()
             break
     if shorthand.isdigit():
         amount_ml = int(shorthand)
-        return amount_ml if amount_ml > 0 else None
+        return sign * amount_ml if amount_ml > 0 else None
 
     command_prefixes = ("/drink", "/water", "喝水", "喝了", "補水")
     for prefix in command_prefixes:
@@ -147,7 +152,7 @@ def parse_manual_drink(text: str) -> Optional[int]:
                 amount_ml = int(amount_raw)
             except ValueError:
                 return None
-            return amount_ml if amount_ml > 0 else None
+            return amount_ml if amount_ml != 0 else None
     return None
 
 
@@ -180,7 +185,7 @@ async def process_telegram_update(update: dict, db: Session):
                 chat_id,
                 (
                     f"今日 {summary['daily_total']} / {summary['target']} ml，本週達標 {summary['week_ok_days']} / 7 天，"
-                    f"待補水量 {summary['debt_ml']} ml。\n{summary['status_message']}"
+                    f"待補水量 {summary['debt_ml']} ml。\n{summary['status_message']}\n{summary['fixed_plan']['summary_text']}"
                 ),
             )
             try:
@@ -201,16 +206,17 @@ async def process_telegram_update(update: dict, db: Session):
         elif parse_manual_drink(text) is not None:
             amount_ml = parse_manual_drink(text)
             if amount_ml is None:
-                await send_text(chat_id, "用法：/drink 300、/water 300，也可直接輸入：喝水 300、+300、300ml、300cc")
+                await send_text(chat_id, "用法：/drink 300、/drink -300，也可直接輸入：喝水 300、喝水 -300、+300、-300、300ml、300cc")
                 return {"ok": True}
-            state, daily = record_drink(db, user, amount_ml, source="telegram-command")
+            state, daily, applied_amount_ml = record_drink(db, user, amount_ml, source="telegram-command")
             db.commit()
             summary = summary_for_user(db, user)
+            action_text = "已記錄" if applied_amount_ml >= 0 else "已扣減"
             await send_text(
                 chat_id,
                 (
-                    f"已記錄 {amount_ml} ml。今日累計 {daily.total_ml} / {daily.target_ml} ml，"
-                    f"待補水量 {state.debt_ml} ml。\n{summary['status_message']}"
+                    f"{action_text} {abs(applied_amount_ml)} ml。今日累計 {daily.total_ml} / {daily.target_ml} ml，"
+                    f"待補水量 {state.debt_ml} ml。\n{summary['status_message']}\n{summary['fixed_plan']['summary_text']}"
                 ),
             )
             try:
@@ -225,7 +231,7 @@ async def process_telegram_update(update: dict, db: Session):
             or text.startswith("補水")
             or text.startswith("+")
         ):
-            await send_text(chat_id, "用法：/drink 300、/water 300，也可直接輸入：喝水 300、+300、300ml、300cc")
+            await send_text(chat_id, "用法：/drink 300、/drink -300，也可直接輸入：喝水 300、喝水 -300、+300、-300、300ml、300cc")
         else:
             await send_text(chat_id, help_text(chat_id))
         return {"ok": True}
@@ -236,20 +242,36 @@ async def process_telegram_update(update: dict, db: Session):
         if not data.startswith("WATER_"):
             return {"ok": True}
         chat_id = str(callback.get("message", {}).get("chat", {}).get("id"))
-        message_id = callback.get("message", {}).get("message_id")
-        amount_ml = int(data.split("_", 1)[1])
+        callback_id = callback.get("id")
+        if callback_id:
+            try:
+                await telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
+            except Exception:
+                pass
         user = get_user_or_404(db, chat_id)
-        state, daily = record_drink(db, user, amount_ml, source="telegram-button")
-        if message_id:
-            await delete_message(chat_id, message_id)
-            state.last_message_id = None
+        if data == "WATER_STATUS":
+            summary = summary_for_user(db, user)
+            await send_text(
+                chat_id,
+                (
+                    f"今日 {summary['daily_total']} / {summary['target']} ml，本週達標 {summary['week_ok_days']} / 7 天，"
+                    f"待補水量 {summary['debt_ml']} ml。\n{summary['status_message']}\n{summary['fixed_plan']['summary_text']}"
+                ),
+            )
+            try:
+                await send_summary_photo(chat_id, render_summary_image(user, summary), "喝水紀錄快照")
+            except Exception as exc:
+                logger.warning("Failed to send hydration snapshot: %s", exc)
+            return {"ok": True}
+        amount_ml = int(data.split("_", 1)[1])
+        state, daily, applied_amount_ml = record_drink(db, user, amount_ml, source="telegram-button")
         db.commit()
         summary = summary_for_user(db, user)
         await send_text(
             chat_id,
             (
-                f"已記錄喝水 {amount_ml} ml。今日累計 {daily.total_ml} / {daily.target_ml} ml，"
-                f"待補水量 {state.debt_ml} ml。\n{summary['status_message']}"
+                f"已記錄喝水 {abs(applied_amount_ml)} ml。今日累計 {daily.total_ml} / {daily.target_ml} ml，"
+                f"待補水量 {state.debt_ml} ml。\n{summary['status_message']}\n{summary['fixed_plan']['summary_text']}"
             ),
         )
         try:
@@ -336,10 +358,11 @@ async def update_settings(chat_id: str, payload: UserSettingsIn, db: Session = D
 @app.post("/api/drink")
 async def manual_drink(payload: ManualDrinkIn, db: Session = Depends(get_db)):
     user = get_user_or_404(db, payload.chat_id)
-    state, daily = record_drink(db, user, payload.amount_ml, source="web")
+    state, daily, applied_amount_ml = record_drink(db, user, payload.amount_ml, source="web")
     db.commit()
     return {
         "ok": True,
+        "applied_amount_ml": applied_amount_ml,
         "daily_total": daily.total_ml,
         "target": daily.target_ml,
         "debt_ml": state.debt_ml,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional, Union
@@ -30,6 +31,13 @@ LEGACY_CUP_THRESHOLD = 40
 SUMMARY_IMAGE_WIDTH = 1080
 SUMMARY_IMAGE_HEIGHT = 900
 DEFAULT_QUICK_ADD_AMOUNTS = [250, 500, 750]
+FIXED_DRINK_PLAN = [
+    {"key": "wake", "name": "起床", "label": "起床", "amount_ml": 300},
+    {"key": "morning", "name": "早上10點", "label": "10:00", "amount_ml": 500},
+    {"key": "afternoon", "name": "下午3~4點", "label": "15:00-16:00", "amount_ml": 500},
+    {"key": "evening", "name": "晚上7~8點", "label": "19:00-20:00", "amount_ml": 300},
+    {"key": "bedtime", "name": "睡前", "label": "22:00", "amount_ml": 100},
+]
 
 
 def now_in_timezone(tz_name: str) -> datetime:
@@ -330,6 +338,50 @@ def current_fail_streak(recent7: list[dict]) -> int:
     return streak
 
 
+def build_fixed_plan_summary(daily_total: int) -> dict:
+    cumulative_target = 0
+    checkpoints: list[dict] = []
+    for item in FIXED_DRINK_PLAN:
+        cumulative_target += item["amount_ml"]
+        checkpoints.append(
+            {
+                **item,
+                "cumulative_target_ml": cumulative_target,
+                "completed": daily_total >= cumulative_target,
+            }
+        )
+
+    completed_checkpoint = next((item for item in reversed(checkpoints) if item["completed"]), None)
+    next_checkpoint = next((item for item in checkpoints if not item["completed"]), None)
+    is_completed = next_checkpoint is None
+    remaining_ml = 0 if is_completed else max(0, next_checkpoint["cumulative_target_ml"] - daily_total)
+    achieved_ml = min(daily_total, checkpoints[-1]["cumulative_target_ml"])
+
+    if is_completed:
+        summary_text = "固定計畫：今天已完成或超前"
+    elif completed_checkpoint is None:
+        summary_text = (
+            f"固定計畫：下一個 {next_checkpoint['name']}，"
+            f"目標累積 {next_checkpoint['cumulative_target_ml']} ml，尚差 {remaining_ml} ml"
+        )
+    else:
+        summary_text = (
+            f"固定計畫：已完成 {completed_checkpoint['name']} {completed_checkpoint['cumulative_target_ml']} ml；"
+            f"下一個 {next_checkpoint['name']}，目標累積 {next_checkpoint['cumulative_target_ml']} ml，尚差 {remaining_ml} ml"
+        )
+
+    return {
+        "checkpoints": checkpoints,
+        "completed_checkpoint": completed_checkpoint,
+        "next_checkpoint": next_checkpoint,
+        "is_completed": is_completed,
+        "remaining_ml": remaining_ml,
+        "achieved_ml": achieved_ml,
+        "total_target_ml": checkpoints[-1]["cumulative_target_ml"],
+        "summary_text": summary_text,
+    }
+
+
 def build_status_message(daily: WaterDaily, blocks: list[dict], week_ok_days: int, fail_streak: int) -> str:
     current_block = current_time_block(blocks)
     if daily.achieved:
@@ -354,6 +406,7 @@ def build_reminder_text(db: Session, user: User, state: WaterState, daily: Water
     recent3_marks = ["✅" if item["achieved"] else "❌" for item in recent7[-3:]]
     fail_streak = current_fail_streak(recent7)
     blocks = summarize_time_blocks(db, user, local_today, local_now)
+    fixed_plan = build_fixed_plan_summary(daily.total_ml)
     current_block = current_time_block(blocks)
     step_ml = block_step_ml(current_block)
 
@@ -378,6 +431,7 @@ def build_reminder_text(db: Session, user: User, state: WaterState, daily: Water
         f"目前應補水量：{state.debt_ml} ml\n"
         f"今日已喝：{daily.total_ml} / {daily.target_ml} ml\n"
         f"本時段進度：{current_block['amount_ml']} / {current_block['target_ml']} ml\n"
+        f"{fixed_plan['summary_text']}\n"
         f"本週達標：{week_ok_days} / 7 天\n"
         f"近三日：{' '.join(recent3_marks)}\n"
         f"{note}\n{motivation}\n\n"
@@ -386,20 +440,16 @@ def build_reminder_text(db: Session, user: User, state: WaterState, daily: Water
 
 
 def reminder_keyboard(user: User) -> dict:
-    step_ml = reminder_step_ml(user)
     custom_amounts = parse_quick_add_amounts(user.quick_add_amounts)
-    rows = [
-        [
-            {"text": f"{step_ml} ml", "callback_data": f"WATER_{step_ml}"},
-            {"text": f"{step_ml * 2} ml", "callback_data": f"WATER_{step_ml * 2}"},
-            {"text": f"{step_ml * 3} ml", "callback_data": f"WATER_{step_ml * 3}"},
-        ],
-    ]
-    custom_row = [{"text": f"{amount} ml", "callback_data": f"WATER_{amount}"} for amount in custom_amounts[:3]]
-    if custom_row:
-        rows.append(custom_row)
-    if DASHBOARD_URL:
-        rows.append([{"text": "查看喝水儀表板", "url": DASHBOARD_URL}])
+    rows = []
+    for index in range(0, len(custom_amounts), 3):
+        chunk = custom_amounts[index : index + 3]
+        rows.append([{"text": f"+{amount}", "callback_data": f"WATER_{amount}"} for amount in chunk])
+    footer_row = [{"text": "查看狀態", "callback_data": "WATER_STATUS"}]
+    dashboard_url = dashboard_url_for_chat(user.chat_id)
+    if dashboard_url:
+        footer_row.append({"text": "喝水儀表板", "url": dashboard_url})
+    rows.append(footer_row)
     return {"inline_keyboard": rows}
 
 
@@ -450,6 +500,9 @@ def render_summary_image(user: User, summary: dict) -> bytes:
     draw.rounded_rectangle((progress_left, progress_top, max(progress_left + 24, fill_right), progress_bottom), radius=20, fill="#69C792")
     draw.text((82, 284), f"待補水量 {summary['debt_ml']} ml", font=body_font, fill="#6B8B79")
     draw.text((640, 284), f"本週達標 {summary['week_ok_days']} / 7", font=body_font, fill="#6B8B79")
+    fixed_plan_text = (summary.get("fixed_plan") or {}).get("summary_text", "")
+    if fixed_plan_text:
+        draw.text((82, 326), fixed_plan_text, font=small_font, fill="#456A55")
 
     blocks = summary.get("time_blocks", [])[:3]
     block_top = 360
@@ -475,7 +528,8 @@ def render_summary_image(user: User, summary: dict) -> bytes:
         y = row_top + index * 46
         timestamp = item.get("logged_at_local", item["logged_at"]).replace("T", " ")[:16]
         draw.text((82, y), timestamp, font=small_font, fill="#456A55")
-        draw.text((760, y), f"+{item['amount_ml']} ml", font=small_font, fill="#214A33")
+        sign = "+" if item["amount_ml"] >= 0 else "-"
+        draw.text((760, y), f"{sign}{abs(item['amount_ml'])} ml", font=small_font, fill="#214A33")
 
     footer = now_in_timezone(user.timezone).strftime("更新時間 %Y-%m-%d %H:%M")
     draw.text((82, 814), footer, font=small_font, fill="#7A9A86")
@@ -483,19 +537,6 @@ def render_summary_image(user: User, summary: dict) -> bytes:
     output = io.BytesIO()
     image.save(output, format="PNG", optimize=True)
     return output.getvalue()
-
-
-def persistent_menu_keyboard(user: Optional[User] = None) -> dict:
-    quick_amounts = parse_quick_add_amounts(user.quick_add_amounts if user else None)
-    rows = [[{"text": f"+{amount}"} for amount in quick_amounts[:3]]]
-    rows.append([{"text": "/status"}, {"text": "/dashboard"}, {"text": "/help"}])
-
-    return {
-        "keyboard": rows,
-        "resize_keyboard": True,
-        "is_persistent": True,
-        "input_field_placeholder": "點底下按鈕快速補水，或輸入 /drink 300",
-    }
 
 
 async def telegram_api(method: str, payload: dict) -> dict:
@@ -513,9 +554,16 @@ async def telegram_api(method: str, payload: dict) -> dict:
 async def send_summary_photo(chat_id: str, png_bytes: bytes, caption: Optional[str] = None) -> None:
     if not TELEGRAM_API_BASE:
         return
+    user: Optional[User] = None
+    from .db import session_scope
+
+    with session_scope() as db:
+        user = db.scalar(select(User).where(User.chat_id == chat_id))
     data = {"chat_id": chat_id}
     if caption:
         data["caption"] = caption
+    if user is not None:
+        data["reply_markup"] = json.dumps(reminder_keyboard(user))
     files = {"photo": ("hydration-summary.png", png_bytes, "image/png")}
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(f"{TELEGRAM_API_BASE}/sendPhoto", data=data, files=files)
@@ -528,6 +576,24 @@ async def delete_message(chat_id: str, message_id: Optional[Union[str, int]]) ->
         return
     try:
         await telegram_api("deleteMessage", {"chat_id": chat_id, "message_id": int(message_id)})
+    except Exception:
+        return
+
+
+async def clear_legacy_reply_keyboard(chat_id: str) -> None:
+    try:
+        result = await telegram_api(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": "\u2060",
+                "disable_notification": True,
+                "reply_markup": {"remove_keyboard": True},
+            },
+        )
+        message = result.get("result") or {}
+        if message.get("message_id"):
+            await delete_message(chat_id, message["message_id"])
     except Exception:
         return
 
@@ -552,33 +618,39 @@ async def send_text(chat_id: str, text: str) -> None:
 
         with session_scope() as db:
             user = db.scalar(select(User).where(User.chat_id == chat_id))
+    await clear_legacy_reply_keyboard(chat_id)
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "reply_markup": persistent_menu_keyboard(user),
     }
+    if user is not None:
+        payload["reply_markup"] = reminder_keyboard(user)
     await telegram_api("sendMessage", payload)
 
 
-def record_drink(db: Session, user: User, amount_ml: int, source: str = "telegram") -> tuple[WaterState, WaterDaily]:
+def record_drink(db: Session, user: User, amount_ml: int, source: str = "telegram") -> tuple[WaterState, WaterDaily, int]:
     local_now = now_in_timezone(user.timezone)
     local_today = local_now.date()
     state = ensure_user_state(db, user, local_today)
     daily = ensure_daily_record(db, user, local_today)
+    if amount_ml == 0:
+        raise ValueError("amount_ml cannot be zero")
 
-    debt_reduction = min(amount_ml, max(0, state.debt_ml))
+    applied_amount_ml = amount_ml if amount_ml > 0 else -min(daily.total_ml, abs(amount_ml))
+
+    debt_reduction = min(max(applied_amount_ml, 0), max(0, state.debt_ml))
     state.debt_ml = max(0, state.debt_ml - debt_reduction)
-    state.daily_total = daily.total_ml + amount_ml
+    state.daily_total = max(0, daily.total_ml + applied_amount_ml)
     state.last_drink_at = local_now.astimezone(timezone.utc).replace(tzinfo=None)
     state.status = "done" if state.daily_total >= daily.target_ml else ("drank" if state.debt_ml == 0 else "waiting")
 
-    daily.total_ml += amount_ml
+    daily.total_ml = max(0, daily.total_ml + applied_amount_ml)
     daily.target_ml = user.daily_target
     daily.achieved = daily.total_ml >= daily.target_ml
 
-    db.add(WaterLog(user_id=user.id, amount_ml=amount_ml, source=source, logged_at=datetime.utcnow()))
+    db.add(WaterLog(user_id=user.id, amount_ml=applied_amount_ml, source=source, logged_at=datetime.utcnow()))
     db.flush()
-    return state, daily
+    return state, daily, applied_amount_ml
 
 
 def recalculate_user_day(db: Session, user: User, local_day: date) -> tuple[WaterState, WaterDaily]:
@@ -632,6 +704,7 @@ def summary_for_user(db: Session, user: User) -> dict:
     daily = ensure_daily_record(db, user, local_today)
     recent7, week_ok_days = build_recent7(db, user, local_today)
     blocks = summarize_time_blocks(db, user, local_today, local_now)
+    fixed_plan = build_fixed_plan_summary(daily.total_ml)
     fail_streak = current_fail_streak(recent7)
     if daily.achieved:
         state.debt_ml = 0
@@ -652,6 +725,11 @@ def summary_for_user(db: Session, user: User) -> dict:
         "status_message": build_status_message(daily, blocks, week_ok_days, fail_streak),
         "time_blocks": blocks,
         "recent_7_days": recent7,
+        "fixed_plan": fixed_plan,
+        "completed_checkpoint": fixed_plan["completed_checkpoint"],
+        "next_checkpoint": fixed_plan["next_checkpoint"],
+        "is_completed": fixed_plan["is_completed"],
+        "remaining_ml": fixed_plan["remaining_ml"],
         "recent_logs": [
             {
                 "id": row.id,
