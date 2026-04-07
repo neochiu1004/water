@@ -409,6 +409,21 @@ def build_reminder_text(db: Session, user: User, state: WaterState, daily: Water
     fixed_plan = build_fixed_plan_summary(daily.total_ml)
     current_block = current_time_block(blocks)
     step_ml = block_step_ml(current_block)
+    daily_remaining_ml = max(0, daily.target_ml - daily.total_ml)
+    block_remaining_ml = current_block["remaining_ml"]
+    suggested_step_ml = step_ml
+    suggested_step_text = f"{suggested_step_ml} ml"
+
+    if daily.achieved:
+        suggested_step_text = "今天已達標"
+    elif state.debt_ml >= step_ml * 4:
+        suggested_step_ml = min(daily_remaining_ml, block_remaining_ml, max(step_ml, step_ml * 2))
+        suggested_step_text = f"{max(step_ml, suggested_step_ml)} ml"
+    elif state.debt_ml > 0:
+        suggested_step_ml = min(step_ml, daily_remaining_ml, block_remaining_ml)
+        suggested_step_text = f"{max(100, suggested_step_ml)} ml"
+    elif block_remaining_ml > 0:
+        suggested_step_text = f"若想補齊本時段，可再喝 {min(step_ml, block_remaining_ml)} ml"
 
     level = "💧"
     note = f"目前在 {current_block['name']}時段，目標 {current_block['target_ml']} ml。"
@@ -420,14 +435,17 @@ def build_reminder_text(db: Session, user: User, state: WaterState, daily: Water
         note = f"{current_block['name']}時段有點落後，這次先補 {step_ml} ml 會比較順。"
     elif state.debt_ml > 0:
         level = "⚠️"
-        note = f"距離這個時段達標還差 {current_block['remaining_ml']} ml。"
+        note = (
+            f"距離今日目標還差 {max(0, daily.target_ml - daily.total_ml)} ml；"
+            f"距離這個時段達標還差 {current_block['remaining_ml']} ml。"
+        )
 
     motivation = build_status_message(daily, blocks, week_ok_days, fail_streak)
 
     return (
         f"{level} 喝水提醒\n\n"
         f"時段：{current_block['name']} {current_block['label']}\n"
-        f"建議這次先補：{step_ml} ml\n"
+        f"建議這次先補：{suggested_step_text}\n"
         f"目前應補水量：{state.debt_ml} ml\n"
         f"今日已喝：{daily.total_ml} / {daily.target_ml} ml\n"
         f"本時段進度：{current_block['amount_ml']} / {current_block['target_ml']} ml\n"
